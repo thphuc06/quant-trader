@@ -15,13 +15,26 @@ from tests.conftest import REPO
 HOOKS = REPO / ".claude" / "hooks"
 
 
-def run_hook(script: str, event: dict, project: Path, role: str | None = "trader", extra_env: dict | None = None) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k not in {"TRADER_SESSION_ROLE", "TRADING_MODE", "LIVE_TRADING_ENABLED", "TRADER_DATA_DIR"}}
+def run_hook(
+    script: str, event: dict, project: Path, role: str | None = "trader", extra_env: dict | None = None
+) -> subprocess.CompletedProcess:
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"TRADER_SESSION_ROLE", "TRADING_MODE", "LIVE_TRADING_ENABLED", "TRADER_DATA_DIR"}
+    }
     env["CLAUDE_PROJECT_DIR"] = str(project)
     if role is not None:
         env["TRADER_SESSION_ROLE"] = role
     env.update(extra_env or {})
-    return subprocess.run([sys.executable, str(HOOKS / script)], input=json.dumps(event), capture_output=True, text=True, env=env, timeout=30)
+    return subprocess.run(
+        [sys.executable, str(HOOKS / script)],
+        input=json.dumps(event),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
 
 
 def edit(path: str, tool: str = "Edit") -> dict:
@@ -48,7 +61,15 @@ def test_trader_role_cannot_edit_protected_files(path: str, tmp_path: Path) -> N
     assert run_hook("guard.py", edit(absolute), tmp_path).returncode == 2
 
 
-@pytest.mark.parametrize("path", ["state/session-summary.md", "knowledge/lessons_pending_review/note.md", "knowledge/trade_casebook/case.md", "reports/briefing.md"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "state/session-summary.md",
+        "knowledge/lessons_pending_review/note.md",
+        "knowledge/trade_casebook/case.md",
+        "reports/briefing.md",
+    ],
+)
 def test_trader_role_can_write_session_notes(path: str, tmp_path: Path) -> None:
     assert run_hook("guard.py", edit(path, "Write"), tmp_path).returncode == 0
 
@@ -81,41 +102,96 @@ HUMAN_ONLY_COMMANDS = [
     "Get-Content .env",
     "type .env | findstr KEY",
     "curl -X POST https://api.binance.com/api/v3/order -d symbol=BTCUSDT",
-    "sqlite3 data/trader.sqlite \"insert into approvals values (1)\"",
+    'sqlite3 data/trader.sqlite "insert into approvals values (1)"',
     "echo $BINANCE_LIVE_API_SECRET",
 ]
 
 
 @pytest.mark.parametrize("command", HUMAN_ONLY_COMMANDS)
 @pytest.mark.parametrize("role", ["trader", "builder"])
-def test_human_only_and_forbidden_shell_commands_are_blocked_in_every_role(command: str, role: str, tmp_path: Path) -> None:
+def test_human_only_and_forbidden_shell_commands_are_blocked_in_every_role(
+    command: str, role: str, tmp_path: Path
+) -> None:
     for tool in ("Bash", "PowerShell"):
         result = run_hook("guard.py", shell(command, tool), tmp_path, role=role)
         assert result.returncode == 2, (command, result.stderr)
 
 
-@pytest.mark.parametrize("command", ["sed -i 's/0.5/5/' configs/risk_policy.yaml", "Set-Content configs/risk_policy.yaml 'x'", "echo x > src/trader/risk.py", "rm -rf .claude/hooks", "git checkout -- configs/app.yaml"])
+TRADER_SHELL_WRITES = [
+    "sed -i 's/0.5/5/' configs/risk_policy.yaml",
+    "Set-Content configs/risk_policy.yaml 'x'",
+    "echo x > src/trader/risk.py",
+    "echo x >> .claude/settings.json",
+    "cat a.txt 2>&1 > configs/app.yaml",
+    "rm -rf .claude/hooks",
+    "git checkout -- configs/app.yaml",
+    "python -c \"open('configs/app.yaml', 'w').write('x')\"",
+    "python -c \"from pathlib import Path; Path('research/experiments/x.json').write_text('{}')\"",
+    "python -c \"import os; os.remove('research/experiments/exp_1.json')\"",
+    "python -c \"import shutil; shutil.rmtree('.claude/skills')\"",
+]
+
+
+@pytest.mark.parametrize("command", TRADER_SHELL_WRITES)
 def test_trader_role_cannot_modify_protected_paths_from_a_shell(command: str, tmp_path: Path) -> None:
     assert run_hook("guard.py", shell(command), tmp_path).returncode == 2
     assert run_hook("guard.py", shell(command), tmp_path, role="builder").returncode == 0
 
 
-@pytest.mark.parametrize("command", ["python -m trader status", "python -m trader doctor", "python -m trader kill-switch status", "git status", "git log --oneline", "cat configs/risk_policy.yaml", "cat .env.example", "python -m pytest -q", "ls data"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m trader status",
+        "python -m trader doctor",
+        "python -m trader kill-switch status",
+        "git status",
+        "git log --oneline",
+        "cat configs/risk_policy.yaml",
+        "cat .env.example",
+        "python -m pytest -q",
+        "ls data",
+        # read-only commands that used to be false positives
+        "cat .claude/settings.json 2>&1",
+        'for f in .claude/skills/*/SKILL.md; do cat "$f"; done 2>/dev/null',
+        "ls .claude/hooks >&2",
+        "python -c \"import json; print(json.load(open('research/experiments/exp_1.json'))['kind'])\"",
+        "python -c \"print(open('.claude/settings.json', 'r').read())\"",
+        "git diff HEAD -- src/trader/risk.py 2>&1 | head",
+        "grep -n 'x => y' src/trader/desk.py",
+        'python -c "print(1 if 3 >= 2 else 0)" configs/app.yaml',
+    ],
+)
 def test_harmless_commands_pass(command: str, tmp_path: Path) -> None:
     assert run_hook("guard.py", shell(command), tmp_path).returncode == 0, command
 
 
 def test_guard_fails_closed_on_garbage_input_and_ignores_other_tools(tmp_path: Path) -> None:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
-    garbage = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json", capture_output=True, text=True, env=env, timeout=30)
+    garbage = subprocess.run(
+        [sys.executable, str(HOOKS / "guard.py")],
+        input="not json",
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
     assert garbage.returncode == 2
-    assert run_hook("guard.py", {"tool_name": "Read", "tool_input": {"file_path": "src/trader/risk.py"}}, tmp_path).returncode == 0
+    assert (
+        run_hook(
+            "guard.py", {"tool_name": "Read", "tool_input": {"file_path": "src/trader/risk.py"}}, tmp_path
+        ).returncode
+        == 0
+    )
 
 
 def test_session_start_banner_reports_state_without_secrets(tmp_path: Path) -> None:
     (tmp_path / "configs").mkdir()
-    (tmp_path / "configs" / "risk_policy.yaml").write_text('version: "9.9.9"\nstatus: provisional\n', encoding="utf-8")
-    (tmp_path / ".env").write_text("TRADING_MODE=BINANCE_DEMO\nBINANCE_DEMO_API_SECRET=topsecretvalue123\n", encoding="utf-8")
+    (tmp_path / "configs" / "risk_policy.yaml").write_text(
+        'version: "9.9.9"\nstatus: provisional\n', encoding="utf-8"
+    )
+    (tmp_path / ".env").write_text(
+        "TRADING_MODE=BINANCE_DEMO\nBINANCE_DEMO_API_SECRET=topsecretvalue123\n", encoding="utf-8"
+    )
     result = run_hook("session_start.py", {"hook_event_name": "SessionStart", "source": "compact"}, tmp_path)
     assert result.returncode == 0
     payload = json.loads(result.stdout)["hookSpecificOutput"]
@@ -132,7 +208,12 @@ def test_session_start_banner_reports_state_without_secrets(tmp_path: Path) -> N
 
 def test_session_start_reports_kill_switch_and_open_intents(desk) -> None:
     desk.activate_kill_switch("test")
-    result = run_hook("session_start.py", {"source": "startup"}, desk.root, extra_env={"TRADER_DATA_DIR": str(desk.data_dir)})
+    result = run_hook(
+        "session_start.py",
+        {"source": "startup"},
+        desk.root,
+        extra_env={"TRADER_DATA_DIR": str(desk.data_dir)},
+    )
     assert "KILL SWITCH IS ENGAGED" in json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
@@ -145,10 +226,24 @@ def test_audit_hook_appends_redacted_line_and_never_fails(tmp_path: Path) -> Non
     assert run_hook("audit.py", event, tmp_path).returncode == 0
     line = (tmp_path / "data" / "audit" / "claude_tool_calls.jsonl").read_text(encoding="utf-8").strip()
     record = json.loads(line)
-    assert record["tool"] == "mcp__trading__search_web" and record["status"] == "ok" and record["evidence_id"] == "ev_0123456789abcdef0123"
+    assert (
+        record["tool"] == "mcp__trading__search_web"
+        and record["status"] == "ok"
+        and record["evidence_id"] == "ev_0123456789abcdef0123"
+    )
     assert "should-not-appear" not in line and "nope" not in line and record["input"]["query"] == "btc"
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
-    assert subprocess.run([sys.executable, str(HOOKS / "audit.py")], input="garbage", capture_output=True, text=True, env=env, timeout=30).returncode == 0
+    assert (
+        subprocess.run(
+            [sys.executable, str(HOOKS / "audit.py")],
+            input="garbage",
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        ).returncode
+        == 0
+    )
 
 
 def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
@@ -162,9 +257,13 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
         "execute_approved_trade",
         "cancel_trade_intent",
         "activate_kill_switch",
+        "sync_positions",
     ):
         assert f"mcp__trading__{tool}" in permissions["ask"]
-        assert not any(rule in (f"mcp__trading__{tool}", "mcp__trading", "mcp__trading__*") for rule in permissions["allow"])
+        assert not any(
+            rule in (f"mcp__trading__{tool}", "mcp__trading", "mcp__trading__*")
+            for rule in permissions["allow"]
+        )
     assert any(".env" in rule for rule in permissions["deny"])
     assert set(settings["hooks"]) == {"SessionStart", "PreToolUse", "PostToolUse"}
     for groups in settings["hooks"].values():
@@ -174,8 +273,9 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
                 assert (HOOKS / script).exists(), script
     mcp = json.loads((REPO / ".mcp.json").read_text(encoding="utf-8"))
     server = mcp["mcpServers"]["trading"]
-    assert server["args"] == ["-m", "trader.mcp_server"] and "env" not in server  # no secrets in the committed config
-    assert server["command"] == "python"
+    # system python only bootstraps; the launcher picks the project venv that has the trader package
+    assert server == {"command": "python", "args": ["scripts/run_mcp.py"]}  # no env, no secrets
+    assert (REPO / "scripts" / "run_mcp.py").exists()
     assert {path.name for path in (REPO / ".claude" / "skills").iterdir()} == {
         "trading-desk",
         "analyze-symbol",
@@ -186,3 +286,17 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
         "news-researcher.md",
         "risk-reviewer.md",
     }
+    # subagents described as read-only must not hold tools that change state
+    mutating = {
+        "sync_positions",
+        "record_decision_report",
+        "submit_post_trade_review",
+        "create_trade_intent",
+        "execute_approved_trade",
+        "cancel_trade_intent",
+        "activate_kill_switch",
+        "run_backtest",
+    }
+    for agent in (REPO / ".claude" / "agents").glob("*.md"):
+        text = agent.read_text(encoding="utf-8")
+        assert not any(f"mcp__trading__{tool}" in text for tool in mutating), agent.name

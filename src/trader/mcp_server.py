@@ -208,11 +208,19 @@ def get_account_state() -> dict[str, Any]:
     return _safe("get_account_state", lambda: desk().account_state())
 
 
-@mcp.tool(annotations=RECORD)
+@mcp.tool(annotations=READ_WEB)
 def get_open_positions() -> dict[str, Any]:
-    """Open positions with unrealized PnL and distance to stop. Also settles any stop/target that triggered since the last check
-    (PAPER: replayed against historical bars) and reports those closures."""
+    """Read-only: open positions with unrealized PnL and distance to stop, marked at the current bid.
+    Does NOT settle stops or targets; use sync_positions for that."""
     return _safe("get_open_positions", lambda: desk().open_positions())
+
+
+@mcp.tool(annotations=RECORD)
+def sync_positions() -> dict[str, Any]:
+    """Settle any stop/target that triggered since the last check (PAPER: replayed against historical bars;
+    exchange modes: records fills of protective stop orders), then return the open positions. Changes the
+    journal and position records. Call once at session start and before decisions about an open position."""
+    return _safe("sync_positions", lambda: desk().sync_positions())
 
 
 @mcp.tool(annotations=READ_WEB)

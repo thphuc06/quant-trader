@@ -34,11 +34,26 @@ HUMAN_ONLY = [
 # Things no session should do from a shell.
 FORBIDDEN = [
     (r"(?<![\w.])\.env(?!\.example)(?![\w])", "reading or writing .env (secrets)"),
-    (r"/api/v3/order|/sapi/|/fapi/v1/order|/api/v3/account", "calling Binance account/order endpoints outside the backend"),
+    (
+        r"/api/v3/order|/sapi/|/fapi/v1/order|/api/v3/account",
+        "calling Binance account/order endpoints outside the backend",
+    ),
     (r"trader\.sqlite", "accessing the operational database directly"),
     (r"X-MBX-APIKEY|API_SECRET|api_secret", "handling exchange credentials"),
 ]
-WRITE_VERBS = r"(>|\bSet-Content\b|\bOut-File\b|\bAdd-Content\b|\bsed\s+-i\b|\btee\b|\brm\b|\bRemove-Item\b|\bmv\b|\bMove-Item\b|\bcp\b|\bCopy-Item\b|\bNew-Item\b|\bgit\s+(checkout|restore|reset|apply|stash)\b|\bwrite_text\b|\bopen\()"
+# Shell or inline-code operations that write. Heuristic by design: false negatives are caught by the backend,
+# false positives block legitimate reads, so stream merges (2>&1, >&2) and null sinks are not writes.
+WRITE_VERBS = (
+    r"("
+    r"(?<![-=<>])\d?>>?\s*(?!&|/dev/null\b|NUL\b|\$null\b)['\"]?[\w./\\~$-]"  # redirect into a file
+    r"|\bSet-Content\b|\bOut-File\b|\bAdd-Content\b|\bNew-Item\b|\bRemove-Item\b|\bMove-Item\b|\bCopy-Item\b|\bRename-Item\b"
+    r"|\bsed\s+-i\b|\btee\b|\brm\b|\bmv\b|\bcp\b|\btruncate\b"
+    r"|\bgit\s+(checkout|restore|reset|apply|stash|rm|mv)\b"
+    r"|\bopen\([^)]*['\"][wax]\+?b?['\"]|\bmode\s*=\s*['\"][wax]"  # open(..., 'w'/'a'/'x')
+    r"|\.write_text\(|\.write_bytes\(|\.to_parquet\(|\.to_csv\(|\.to_json\(|\.unlink\(|\.rmdir\("
+    r"|\bshutil\.(rmtree|move|copy\w*)\(|\bos\.(remove|unlink|rename|replace|rmdir)\("
+    r")"
+)
 TRADER_PROTECTED_PATHS = r"(configs[/\\]|src[/\\]trader|\.claude[/\\]|\.mcp\.json|CLAUDE\.md|risk_policy\.yaml|knowledge[/\\]approved_lessons|research[/\\]experiments)"
 
 
@@ -53,9 +68,11 @@ def relative_path(raw: str, project: Path) -> str | None:
         path = Path(raw)
         if not path.is_absolute():
             path = project / path
-        return PurePosixPath(os.path.normpath(path).replace("\\", "/")).relative_to(
-            PurePosixPath(os.path.normpath(project).replace("\\", "/"))
-        ).as_posix()
+        return (
+            PurePosixPath(os.path.normpath(path).replace("\\", "/"))
+            .relative_to(PurePosixPath(os.path.normpath(project).replace("\\", "/")))
+            .as_posix()
+        )
     except (ValueError, OSError):
         return None
 
@@ -69,7 +86,11 @@ def check_edit(tool_input: dict, role: str, project: Path) -> None:
         return
     lowered = rel.lower()
     name = lowered.rsplit("/", 1)[-1]
-    if lowered in ALWAYS_PROTECTED_FILES or (name.startswith(".env") and name != ".env.example") or lowered.startswith("data/"):
+    if (
+        lowered in ALWAYS_PROTECTED_FILES
+        or (name.startswith(".env") and name != ".env.example")
+        or lowered.startswith("data/")
+    ):
         deny(f"{rel} holds secrets or runtime state and is never edited by Claude")
     if role != "trader":
         return
@@ -88,8 +109,14 @@ def check_shell(command: str, role: str) -> None:
     for pattern, what in FORBIDDEN:
         if re.search(pattern, command):
             deny(f"{what} is not allowed from a shell. Use the trading MCP tools.")
-    if role == "trader" and re.search(TRADER_PROTECTED_PATHS, command, re.IGNORECASE) and re.search(WRITE_VERBS, command):
-        deny("trader sessions do not modify code, configuration, policy, skills or the experiment registry from a shell.")
+    if (
+        role == "trader"
+        and re.search(TRADER_PROTECTED_PATHS, command, re.IGNORECASE)
+        and re.search(WRITE_VERBS, command)
+    ):
+        deny(
+            "trader sessions do not modify code, configuration, policy, skills or the experiment registry from a shell."
+        )
 
 
 def main() -> None:

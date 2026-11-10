@@ -683,7 +683,7 @@ class TradingDesk:
         return self._envelope("get_account_state", {}, data, warnings=warnings)
 
     def open_positions(self) -> Envelope:
-        events = self.execution.monitor_positions()
+        """Pure read: positions as stored, marked at the current bid. Never settles or changes anything."""
         rows, warnings = [], []
         for position in self.execution.positions():
             row: dict[str, Any] = jsonable(position)
@@ -697,21 +697,24 @@ class TradingDesk:
             except Exception as exc:
                 warnings.append(f"{position.symbol}: no quote ({type(exc).__name__})")
             rows.append(row)
+        note = (
+            "Read-only view. PAPER stops/targets are only settled by sync_positions; nothing watches positions between sessions."
+            if self.settings.trading_mode is TradingMode.PAPER
+            else "Read-only view. Exchange-side stop orders protect positions; call sync_positions to record fills of those stops."
+        )
+        return self._envelope("get_open_positions", {}, {"positions": rows, "note": note}, warnings=warnings)
+
+    def sync_positions(self) -> Envelope:
+        """Mutating: settle stops/targets that triggered since the last check, then return the positions."""
+        events = self.execution.monitor_positions()
+        warnings = []
         if any(e.get("status") == "monitor_failed" for e in events):
             warnings.append(
                 "Stop/target monitoring failed for at least one position; state may be out of date."
             )
-        note = (
-            "PAPER stops/targets are settled against historical bars when this tool runs; nothing watches positions between sessions."
-            if self.settings.trading_mode is TradingMode.PAPER
-            else "Exchange-side stop orders protect positions; targets are not placed on the exchange."
-        )
-        return self._envelope(
-            "get_open_positions",
-            {},
-            {"positions": rows, "settled_since_last_check": events, "note": note},
-            warnings=warnings,
-        )
+        view = self.open_positions()
+        data = {"settled": events, "positions": view["data"]["positions"], "note": view["data"]["note"]}
+        return self._envelope("sync_positions", {}, data, warnings=warnings + view["warnings"])
 
     def risk_state(self) -> Envelope:
         try:

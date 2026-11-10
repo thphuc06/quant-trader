@@ -555,3 +555,35 @@ def test_live_stays_locked_until_every_condition_holds(repo_copy: Path, source: 
     assert desk.execution.live_gate() == (True, [])
     # and a paper-mode process is never "live" even with all of that in place
     assert make_desk(repo_copy, source, TradingMode.PAPER).execution.live_gate()[0] is False
+
+
+def test_get_open_positions_is_a_pure_read(desk, source: FakeSource) -> None:
+    """A stop that triggered is only settled by sync_positions, never by the read tool."""
+    intent = open_long(desk)
+    desk.execute_approved_trade(intent["data"]["intent"]["intent_id"])
+    bars = synthetic_candles(5, "1m", end_ms=int(utc_now().timestamp() * 1000) - 60_000, start_price=100.0)
+    bars[["open", "high", "low", "close"]] = [
+        [100.0, 100.2, 99.5, 99.8],
+        [99.8, 99.9, 90.0, 91.0],
+        [91, 92, 90, 91],
+        [91, 92, 90, 91],
+        [91, 92, 90, 91],
+    ]
+    source.override_klines["1m"] = bars
+    desk.db.execute("UPDATE positions SET last_checked_ms=?", (int(bars["open_time"].iloc[0]) - 1,))
+
+    def snapshot() -> tuple:
+        return (
+            desk.db.query("SELECT * FROM positions"),
+            desk.db.query("SELECT COUNT(*) AS n FROM closed_trades"),
+            desk.db.query("SELECT COUNT(*) AS n FROM journal"),
+            desk.db.query("SELECT * FROM paper_balances"),
+        )
+
+    before = snapshot()
+    view = desk.open_positions()
+    assert len(view["data"]["positions"]) == 1 and "settled" not in view["data"]
+    assert snapshot() == before
+    synced = desk.sync_positions()
+    assert synced["data"]["settled"] and synced["data"]["settled"][0]["exit_reason"] == "stop"
+    assert synced["data"]["positions"] == []

@@ -2,7 +2,7 @@
   "mcpServers": {
     "trading": {
       "command": "python",
-      "args": ["-m", "trader.mcp_server"]
+      "args": ["scripts/run_mcp.py"]
     }
   }
 }

@@ -41,7 +41,7 @@ def server(repo_copy: Path, source: FakeSource):
 EXPECTED_TOOLS = {
     "get_system_status", "get_market_overview", "get_market_snapshot", "get_ohlcv", "get_derivatives_snapshot", "get_strategy_signals",
     "get_model_predictions", "run_backtest", "get_experiment_results", "search_web", "search_crypto_news", "fetch_web_page", "search_knowledge",
-    "get_knowledge_document", "get_pending_lessons", "get_account_state", "get_open_positions", "get_risk_state", "calculate_position_risk",
+    "get_knowledge_document", "get_pending_lessons", "get_account_state", "get_open_positions", "sync_positions", "get_risk_state", "calculate_position_risk",
     "get_trade_intent", "get_trade_case", "record_decision_report", "submit_post_trade_review", "create_trade_intent", "execute_approved_trade",
     "cancel_trade_intent", "activate_kill_switch",
 }  # fmt: skip
@@ -151,6 +151,8 @@ async def test_full_flow_over_mcp_never_leaks_secrets_and_outputs_are_bounded(se
         executed = await call("execute_approved_trade", {"intent_id": intent_id})
         assert executed["data"]["intent_status"] == "FILLED"
         await call("get_open_positions")
+        synced = await call("sync_positions")
+        assert "settled" in synced["data"] and len(synced["data"]["positions"]) == 1
         await call("get_trade_intent", {"intent_id": intent_id})
         await call("get_trade_case", {"intent_id": intent_id})
         assert (await call("submit_post_trade_review", {"review": {"intent_id": intent_id}}))[
