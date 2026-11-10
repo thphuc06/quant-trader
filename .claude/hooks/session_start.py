@@ -86,8 +86,13 @@ def main() -> None:
         lines.append(
             "Context was compacted or resumed: re-read state/session-summary.md and call get_system_status and sync_positions before continuing."
         )
-    if (project / "state" / "session-summary.md").exists():
-        lines.append("A previous session left notes in state/session-summary.md.")
+    summary = project / "state" / "session-summary.md"
+    try:
+        has_notes = summary.exists() and "none yet" not in summary.read_text(encoding="utf-8")
+    except OSError:
+        has_notes = False
+    if has_notes:
+        lines.append("A previous session left notes in state/session-summary.md; read them first.")
 
     print(
         json.dumps(

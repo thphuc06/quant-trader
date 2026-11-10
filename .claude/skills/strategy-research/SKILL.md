@@ -1,11 +1,24 @@
 ---
 name: strategy-research
-description: Form and evaluate one falsifiable strategy hypothesis without opening the locked holdout.
+description: Form and evaluate one falsifiable strategy hypothesis as a registered trial, without touching the locked holdout. Use for "test this strategy", "backtest X", "is this idea any good".
 ---
 
-1. State the economic hypothesis, supported sources, target universe, timeframe and a rejection criterion.
-2. Inspect data quality and prior experiments before proposing a new trial.
-3. Use predeclared parameters, chronological out-of-sample evaluation, realistic costs and registered runs.
-4. Compare with `no_trade` and relevant baselines; report drawdown, Sharpe uncertainty, selection bias and costs.
-5. Never inspect or unlock the holdout for development. Do not call a candidate validated unless every configured gate passes.
-6. Record both positive and negative results with limitations and the exact evidence used.
+# One research trial
+
+Every backtest is logged as a trial and lowers the deflated Sharpe of *every* result. Cheap diagnostics first,
+trials second, and one trial per approved hypothesis.
+
+1. **Hypothesis.** Write the economic reason it should work, the universe, timeframe, holding period and a rejection
+   criterion fixed *before* running. Cite sources; label untested ideas as hypotheses.
+2. **Prior work.** `get_experiment_results` — has this (or a close variant) been run? Read `research/research-log.md`
+   and `research/ml-and-validation.md` (gates, cost model, known limitations). A variant tuned on already-viewed
+   out-of-sample data is not new evidence.
+3. **Cheap diagnostics before a trial.** If the question is "why does X lose", look at existing records
+   (turnover attribution, costs, trade counts) before proposing a new configuration.
+4. **Ask the operator** before `run_backtest` (it asks for permission anyway): state the hypothesis, the parameters
+   fixed in advance and why this is one trial, not a sweep.
+5. **Report** net of costs: trades, Sharpe with its confidence interval, max drawdown, result at 2x costs, DSR with
+   the trial count, comparison with `buy_and_hold` and `no_trade`, and the limitations block. Negative results are
+   results.
+6. **Never** unlock or inspect the holdout (`--unlock-holdout` is human-only). A candidate is "validated" only if
+   every configured gate passes, and that only justifies paper trading.

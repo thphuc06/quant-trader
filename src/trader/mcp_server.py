@@ -270,10 +270,29 @@ def get_trade_case(intent_id: str) -> dict[str, Any]:
 
 @mcp.tool(annotations=RECORD)
 def record_decision_report(report: dict[str, Any]) -> dict[str, Any]:
-    """Store a structured decision report (schema: resource trading://schemas/decision-report). Required before any trade intent.
-    Rejected if it cites evidence_ids this server did not issue, has quantitative claims without evidence, sets
-    expected_net_return without a validated model, or omits counter-evidence/invalidation/stop for a trade candidate.
-    decision: NO_TRADE | WATCH | LONG_CANDIDATE | SHORT_CANDIDATE (analysis only) | EXIT_REVIEW."""
+    """Store a structured decision report. Required before any trade intent.
+
+    `report` keys (ONLY these; unknown keys such as "summary", "mode" or a top-level "evidence_ids" are rejected):
+      required: as_of (UTC ISO with Z), symbol, horizon (e.g. "24h"), decision
+        decision: NO_TRADE | WATCH | LONG_CANDIDATE | SHORT_CANDIDATE (analysis only) | EXIT_REVIEW
+      evidence lists: quantitative_evidence, ml_evidence, news_evidence = [{kind, statement, evidence_ids,
+        source_urls?, published_at?, observed_at?}]; kind: observed_fact | source_claim | model_estimate |
+        interpretation | hypothesis. Evidence ids go INSIDE these items, never at the top level.
+      optional (types matter):
+        market_regime: object {label: str, model_or_method: str, evidence_ids: [str]}
+        knowledge_references, supporting_arguments, counter_evidence, uncertainties, invalidation_conditions,
+          model_versions: LIST OF STRINGS (e.g. ["rule_regime_v1"]), never objects
+        entry_plan, stop_plan, exit_plan, risk_assessment, reason_for_no_trade: string or null
+        source_freshness: object {name: timestamp string}
+        data_quality_status: ok|degraded|unknown; llm_confidence_label: low|medium|high;
+        action_requested: NONE|REQUEST_RISK_VALIDATION.
+      fixed: expected_net_return null, human_approval_required true.
+    NO_TRADE needs reason_for_no_trade. LONG/SHORT_CANDIDATE need quantitative_evidence, counter_evidence,
+    uncertainties, invalidation_conditions and stop_plan. Only cite evidence ids returned by tools in this session.
+    Minimal example: {"as_of": "2026-11-10T16:00:00Z", "symbol": "BTCUSDT", "horizon": "24h", "decision": "WATCH",
+    "quantitative_evidence": [{"kind": "observed_fact", "statement": "1h regime is range/vol_high",
+    "evidence_ids": ["ev_..."]}], "counter_evidence": ["4h trend is down"]}
+    Full template: .claude/skills/analyze-symbol/references/decision-report-template.md"""
     return _safe("record_decision_report", lambda: desk().record_decision_report(report))
 
 
