@@ -177,7 +177,8 @@ REJECTIONS = [
     ("daily_loss_limit", dict(portfolio=portfolio(realized_pnl_today=D(-250))), {}),
     ("weekly_loss_limit", dict(portfolio=portfolio(realized_pnl_week=D(-600))), {}),
     ("drawdown_within_limit", dict(portfolio=portfolio(equity=D(8900), free_quote=D(8900))), {}),
-    ("cooldown_after_loss", dict(last_loss_close=utc_now() - timedelta(minutes=5)), {}),
+    # evaluated when the test runs, not at collection: a slow suite must not outlast the 60-minute cooldown
+    ("cooldown_after_loss", dict(last_loss_close=lambda: utc_now() - timedelta(minutes=5)), {}),
     ("position_sizing", dict(portfolio=portfolio(free_quote=D("0.01"))), {}),
     ("expected_slippage_within_limit", dict(slippage_rate=D("0.01")), {}),
 ]
@@ -187,6 +188,7 @@ REJECTIONS = [
     "check,ctx_overrides,req_overrides", REJECTIONS, ids=[f"{i}-{r[0]}" for i, r in enumerate(REJECTIONS)]
 )
 def test_each_violation_rejects(check: str, ctx_overrides: dict, req_overrides: dict) -> None:
+    ctx_overrides = {k: (v() if callable(v) else v) for k, v in ctx_overrides.items()}
     report = validate_intent("int_1", request(**req_overrides), context(**ctx_overrides), "creation")
     assert not report.approved
     assert check in failed(report), failed(report)
