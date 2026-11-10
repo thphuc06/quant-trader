@@ -1,0 +1,397 @@
+"""Features (no look-ahead), simulator (hand-computed cases), statistics and the ML pipeline."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from tests.conftest import synthetic_candles
+from trader.config import CostConfig
+from trader.quant import ml
+from trader.quant.backtest import run_backtest
+from trader.quant.features import FEATURE_NAMES, FEATURE_REGISTRY, atr, classify_regime, compute_features, rsi
+from trader.quant.research import ExperimentRegistry, evaluate_strategy
+from trader.quant.stats import (
+    block_bootstrap_ci,
+    deflated_sharpe_ratio,
+    expected_max_sharpe,
+    pbo_cscv,
+    performance_metrics,
+    probabilistic_sharpe_ratio,
+)
+from trader.quant.strategies import STRATEGIES, StrategySignal, donchian_breakout_v1, tsmom_trend_v1
+
+SMALL = {
+    "ema_fast": 5,
+    "ema_slow": 20,
+    "tsmom_lookback": 20,
+    "rv_short": 10,
+    "rv_long": 30,
+    "donchian_lookback": 20,
+    "volume_lookback": 20,
+    "vol_regime_window": 100,
+}
+
+
+# ----------------------------------------------------------------------------- features
+
+
+def test_features_have_no_lookahead() -> None:
+    """A feature at bar t must be identical whether or not later bars exist."""
+    candles = synthetic_candles(600)
+    full = compute_features(candles, "1h", SMALL)
+    truncated = compute_features(candles.iloc[:450].copy(), "1h", SMALL)
+    pd.testing.assert_frame_equal(
+        full.iloc[:450][FEATURE_NAMES], truncated[FEATURE_NAMES], check_exact=False, rtol=1e-9
+    )
+
+
+def test_strategy_signals_have_no_lookahead() -> None:
+    candles = synthetic_candles(900)
+    for build in (tsmom_trend_v1, donchian_breakout_v1):
+        full = build(candles, None).target
+        cut = build(candles.iloc[:700].copy(), None).target
+        assert (full.iloc[:700].to_numpy() == cut.to_numpy()).all(), build.__name__
+
+
+def test_recursive_indicators_converge_regardless_of_history_length() -> None:
+    candles = synthetic_candles(1500)
+    long_history = compute_features(candles, "1h", SMALL)
+    short_history = compute_features(candles.iloc[700:].reset_index(drop=True), "1h", SMALL)
+    for name in ("ema_spread", "atr", "rsi", "adx"):
+        assert abs(long_history[name].iloc[-1] - short_history[name].iloc[-1]) < 1e-6 * max(
+            1.0, abs(long_history[name].iloc[-1])
+        ), name
+
+
+def test_warmup_rows_are_nan_not_fabricated() -> None:
+    features = compute_features(synthetic_candles(300), "1h", SMALL)
+    assert features["ema_spread"].iloc[:19].isna().all() and features["ema_spread"].iloc[25:].notna().all()
+    assert features["rv_pct"].iloc[:29].isna().all()
+
+
+def test_known_indicator_values() -> None:
+    rising = pd.Series(np.arange(1.0, 60.0))
+    assert rsi(rising, 14).iloc[-1] == pytest.approx(100.0)
+    falling = pd.Series(np.arange(60.0, 1.0, -1.0))
+    assert rsi(falling, 14).iloc[-1] == pytest.approx(0.0)
+    high, low, close = pd.Series([11.0] * 40), pd.Series([9.0] * 40), pd.Series([10.0] * 40)
+    assert atr(high, low, close, 14).iloc[-1] == pytest.approx(2.0)
+
+
+def test_feature_registry_matches_pipeline_and_values_are_bounded() -> None:
+    features = compute_features(synthetic_candles(800), "1h", SMALL).dropna()
+    assert set(FEATURE_NAMES) <= set(features.columns)
+    assert all(spec.formula and spec.units for spec in FEATURE_REGISTRY)
+    for name in ("rsi", "adx"):
+        assert features[name].between(0, 100).all()
+    for name in ("donchian_pos", "taker_buy_ratio", "rv_pct"):
+        assert features[name].between(0, 1).all()
+
+
+def test_regime_rules_and_unknown_when_missing() -> None:
+    assert (
+        classify_regime(pd.Series({"ema_spread": 0.02, "adx": 30, "rv_pct": 0.9}))["label"]
+        == "trend_up/vol_high"
+    )
+    assert (
+        classify_regime(pd.Series({"ema_spread": -0.02, "adx": 30, "rv_pct": 0.1}))["label"]
+        == "trend_down/vol_low"
+    )
+    assert (
+        classify_regime(pd.Series({"ema_spread": 0.02, "adx": 10, "rv_pct": 0.5}))["label"]
+        == "range/vol_normal"
+    )
+    assert (
+        classify_regime(pd.Series({"ema_spread": np.nan, "adx": 10, "rv_pct": np.nan}))["label"]
+        == "unknown/unknown"
+    )
+
+
+# ----------------------------------------------------------------------------- simulator
+
+
+def _candles(rows: list[tuple[float, float, float, float]]) -> pd.DataFrame:
+    frame = pd.DataFrame(rows, columns=["open", "high", "low", "close"])
+    frame["open_time"] = np.arange(len(rows), dtype="int64") * 3_600_000
+    return frame
+
+
+def _signal(target: list[float], atr_value: float = 1.0, stop_mult: float = 0.0) -> StrategySignal:
+    n = len(target)
+    return StrategySignal(
+        "test",
+        "1",
+        pd.Series(target),
+        pd.Series([atr_value] * n),
+        stop_mult,
+        {},
+        pd.DataFrame(index=range(n)),
+    )
+
+
+def test_fills_happen_at_next_open_with_costs_on_both_sides() -> None:
+    candles = _candles(
+        [(100, 101, 99, 100), (100, 111, 100, 110), (110, 122, 110, 121), (121, 122, 120, 121)]
+    )
+    result = run_backtest(candles, _signal([1, 1, 0, 0]), cost_per_side=0.01)
+    # decided at close of bar 0 -> buy at open of bar 1 (100); decided flat at close of bar 2 -> sell at open of bar 3 (121)
+    expected = (1 - 0.01) * (121 / 100) * (1 - 0.01)
+    assert result.equity.iloc[-1] == pytest.approx(expected)
+    assert result.equity.iloc[0] == 1.0  # nothing can happen on the signal bar itself
+    trade = result.trades[0]
+    assert (trade.entry_price, trade.exit_price, trade.exit_reason, trade.bars_held) == (
+        100,
+        121,
+        "signal",
+        2,
+    )
+    assert trade.net_return == pytest.approx(expected - 1)
+
+
+def test_stop_fills_at_stop_or_at_gap_open_and_blocks_reentry() -> None:
+    # entry at 100 on bar 1, stop = 100 - 2*1 = 98
+    touched = _candles(
+        [
+            (100, 100, 100, 100),
+            (100, 101, 99, 100),
+            (100, 100, 97, 99),
+            (99, 105, 99, 104),
+            (104, 110, 104, 109),
+        ]
+    )
+    result = run_backtest(touched, _signal([1, 1, 1, 1, 1], stop_mult=2.0), cost_per_side=0.0)
+    assert result.trades[0].exit_price == 98 and result.trades[0].exit_reason == "stop"
+    assert len(result.trades) == 1 and result.equity.iloc[-1] == pytest.approx(
+        0.98
+    )  # no re-entry while the signal never reset
+
+    gapped = _candles([(100, 100, 100, 100), (100, 101, 99, 100), (95, 96, 94, 95), (95, 96, 94, 95)])
+    result = run_backtest(gapped, _signal([1, 1, 1, 1], stop_mult=2.0), cost_per_side=0.0)
+    assert result.trades[0].exit_price == 95  # gap through the stop fills at the open, not at 98
+
+
+def test_benchmarks_and_open_trade_at_end() -> None:
+    candles = synthetic_candles(500)
+    flat = run_backtest(candles, STRATEGIES["no_trade"](candles, None), 0.001)
+    assert flat.equity.iloc[-1] == 1.0 and not flat.trades
+    hold = run_backtest(candles, STRATEGIES["buy_and_hold"](candles, None), 0.0)
+    assert hold.equity.iloc[-1] == pytest.approx(candles["close"].iloc[-1] / candles["open"].iloc[1])
+    assert hold.trades[-1].exit_reason == "open_at_end"
+    metrics = performance_metrics(hold.returns, hold.in_position, hold.trades, 8760)
+    assert (
+        metrics["trades"] == 0 and metrics["cagr"] is None
+    )  # sample shorter than a year: no annualised return
+
+
+def test_higher_costs_never_improve_a_result() -> None:
+    candles = synthetic_candles(2000, seed=3)
+    signal = donchian_breakout_v1(candles, {"entry_lookback": 20, "exit_lookback": 10})
+    cheap = run_backtest(candles, signal, 0.0005).equity.iloc[-1]
+    expensive = run_backtest(candles, signal, 0.002).equity.iloc[-1]
+    assert expensive < cheap
+
+
+def test_simulator_is_deterministic() -> None:
+    candles = synthetic_candles(1500, seed=5)
+    a = run_backtest(candles, tsmom_trend_v1(candles, None), 0.0013)
+    b = run_backtest(candles, tsmom_trend_v1(candles, None), 0.0013)
+    assert a.equity.equals(b.equity) and len(a.trades) == len(b.trades)
+
+
+# ----------------------------------------------------------------------------- statistics
+
+
+def test_psr_and_dsr_behave() -> None:
+    rng = np.random.default_rng(0)
+    noise = rng.normal(0, 0.01, 5000)
+    assert 0.05 < probabilistic_sharpe_ratio(noise) < 0.95
+    good = rng.normal(0.001, 0.01, 5000)
+    psr = probabilistic_sharpe_ratio(good)
+    assert psr > 0.99
+    assert deflated_sharpe_ratio(good, 1, 0.0) == pytest.approx(psr)
+    assert deflated_sharpe_ratio(good, 200, 0.02**2) < psr  # many trials deflate the same track record
+    assert expected_max_sharpe(100, 0.01) > expected_max_sharpe(10, 0.01) > 0
+    assert np.isnan(probabilistic_sharpe_ratio(noise[:10]))
+
+
+def test_bootstrap_interval_brackets_zero_for_noise_and_excludes_it_for_drift() -> None:
+    rng = np.random.default_rng(1)
+    lo, hi = block_bootstrap_ci(rng.normal(0, 0.01, 4000), n_boot=300)
+    assert lo < 0 < hi
+    lo, _ = block_bootstrap_ci(rng.normal(0.002, 0.01, 4000), n_boot=300)
+    assert lo > 0
+    assert np.isnan(block_bootstrap_ci(np.zeros(10))[0])
+
+
+def test_pbo_is_high_for_noise_and_low_for_a_genuinely_better_configuration() -> None:
+    rng = np.random.default_rng(2)
+    noise = rng.normal(0, 0.01, (2000, 12))
+    assert pbo_cscv(noise)["pbo"] > 0.25
+    skilled = noise.copy()
+    skilled[:, 0] += 0.002
+    assert pbo_cscv(skilled)["pbo"] < 0.05
+    assert pbo_cscv(noise[:, :2])["status"] == "not_applicable"
+
+
+# ----------------------------------------------------------------------------- experiment registry / holdout
+
+
+def _evaluate(tmp_path: Path, candles: pd.DataFrame, holdout_start: str, unlock: bool = False) -> dict:
+    return evaluate_strategy(
+        candles, symbol="BTCUSDT", interval="1h", strategy="donchian_breakout_v1", params={"entry_lookback": 48, "exit_lookback": 24},
+        costs=CostConfig(), holdout_start=holdout_start, validation={"min_oos_trades": 100, "min_dsr": 0.5}, registry=ExperimentRegistry(tmp_path / "exp"),
+        root=tmp_path, unlock_holdout=unlock,
+    )  # fmt: skip
+
+
+def test_every_run_is_logged_and_holdout_stays_locked(tmp_path: Path) -> None:
+    candles = synthetic_candles(6000, seed=9)
+    boundary = pd.to_datetime(int(candles["open_time"].iloc[4500]), unit="ms").strftime("%Y-%m-%d")
+    first = _evaluate(tmp_path, candles, boundary)
+    second = _evaluate(tmp_path, candles, boundary)
+    registry = ExperimentRegistry(tmp_path / "exp")
+    assert len(registry.records("backtest")) == 2
+    assert first["holdout"] == {"status": "locked"} and first["data"]["holdout_bars"] > 1000
+    assert first["development"]["bars"] == first["data"]["development_bars"]
+    assert second["selection_bias"]["trials_including_this"] == 2
+    assert first["limitations"] and "gates_provisional" in first
+    unlocked = _evaluate(tmp_path, candles, boundary, unlock=True)
+    assert unlocked["holdout"]["status"].startswith("UNLOCKED")
+    assert registry.get(first["experiment_id"])["strategy"] == "donchian_breakout_v1"
+    assert registry.get("../../etc/passwd") is None
+
+
+def test_unknown_strategy_and_short_history_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        evaluate_strategy(
+            synthetic_candles(3000),
+            symbol="X",
+            interval="1h",
+            strategy="nope",
+            params=None,
+            costs=CostConfig(),
+            holdout_start="2020-01-01",
+            validation={},
+            registry=ExperimentRegistry(tmp_path),
+            root=tmp_path,
+        )
+    with pytest.raises(ValueError):
+        _evaluate(
+            tmp_path, synthetic_candles(3000), "2000-01-01"
+        )  # everything is holdout -> no development data
+
+
+# ----------------------------------------------------------------------------- ML
+
+
+def test_triple_barrier_labels_hand_case() -> None:
+    candles = _candles(
+        [
+            (100, 100, 100, 100),
+            (100, 103, 100, 102),
+            (102, 102, 97, 98),
+            (98, 99, 97, 98),
+            (98, 99, 97, 98),
+            (98, 99, 97, 98),
+        ]
+    )
+    labels = ml.triple_barrier_labels(candles, pd.Series([1.0] * 6), k_up=2.0, k_dn=2.0, horizon=2)
+    assert labels["label"].iloc[0] == 1.0 and labels["gross_return"].iloc[0] == pytest.approx(
+        0.02
+    )  # 102 touched on bar 1
+    assert labels["label"].iloc[1] == 0.0  # from 102: lower barrier 100 hit on bar 2
+    assert labels["label"].iloc[-2:].isna().all()  # not enough future bars -> no label
+    both = _candles([(100, 100, 100, 100), (100, 103, 97, 100), (100, 100, 100, 100)])
+    assert (
+        ml.triple_barrier_labels(both, pd.Series([1.0] * 3), 2.0, 2.0, 1)["label"].iloc[0] == 0.0
+    )  # ambiguous bar -> pessimistic
+
+
+def test_walk_forward_folds_are_chronological_and_purged() -> None:
+    folds = ml.walk_forward_folds(1000, train=400, test=100, purge=24)
+    assert len(folds) == 6
+    for train_idx, test_idx in folds:
+        assert (
+            train_idx.max() < test_idx.min() - 24
+        )  # label windows of training rows cannot reach the test block
+        assert len(np.intersect1d(train_idx, test_idx)) == 0
+    assert ml.walk_forward_folds(100, 400, 100, 24) == []
+
+
+def test_model_on_random_walk_is_evaluated_out_of_sample_and_predictions_carry_status(tmp_path: Path) -> None:
+    candles = synthetic_candles(3500, seed=11)
+    cfg = {
+        "horizon_bars": 12,
+        "barrier_up_atr": 2.0,
+        "barrier_down_atr": 2.0,
+        "train_days": 60,
+        "test_days": 15,
+    }
+    cutoff = int(candles["open_time"].iloc[-200])
+    evaluation = ml.evaluate_model(
+        candles,
+        symbol="BTCUSDT",
+        interval="1h",
+        model_name="logreg_v1",
+        feature_params=SMALL,
+        ml_cfg=cfg,
+        cost_per_side=0.0013,
+        holdout_cutoff_ms=cutoff,
+        max_ece=0.05,
+    )
+    assert evaluation["status"] == "ok" and evaluation["folds"] >= 3
+    assert evaluation["out_of_sample_status"] in {"evaluated_no_edge", "evaluated_passed_gates"}
+    assert 0 <= evaluation["ece"] <= 1 and evaluation["log_loss_base_rate"] > 0
+    meta = ml.train_final_model(
+        candles,
+        symbol="BTCUSDT",
+        interval="1h",
+        model_name="logreg_v1",
+        feature_params=SMALL,
+        ml_cfg=cfg,
+        holdout_cutoff_ms=cutoff,
+        evaluation=evaluation,
+        models_dir=tmp_path,
+    )
+    assert (
+        meta["trained_through"] < pd.to_datetime(cutoff, unit="ms").isoformat()
+    )  # holdout rows never reach training
+    prediction = ml.predict_latest(
+        candles,
+        symbol="BTCUSDT",
+        interval="1h",
+        model_name="logreg_v1",
+        models_dir=tmp_path,
+        use_for_decisions=False,
+        data_ok=True,
+    )
+    assert prediction is not None and 0 <= prediction.p_up <= 1
+    assert prediction.usable_for_decisions is False and prediction.expected_net_return is None
+    assert (
+        ml.predict_latest(
+            candles,
+            symbol="ETHUSDT",
+            interval="1h",
+            model_name="logreg_v1",
+            models_dir=tmp_path,
+            use_for_decisions=True,
+            data_ok=True,
+        )
+        is None
+    )
+    tiny = ml.evaluate_model(
+        candles.iloc[:500],
+        symbol="X",
+        interval="1h",
+        model_name="logreg_v1",
+        feature_params=SMALL,
+        ml_cfg=cfg,
+        cost_per_side=0.0,
+        holdout_cutoff_ms=cutoff,
+        max_ece=0.05,
+    )
+    assert tiny["status"] == "insufficient_data"
