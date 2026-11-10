@@ -175,6 +175,50 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
+    """Run research/protocols/daily-baselines-v1.md once. Uses stored candles only; the holdout stays locked."""
+    from trader.config import load_risk_policy
+    from trader.quant.daily_baselines import PROTOCOL_PATH, SYMBOL_PRIORITY, compact, evaluate_daily_baselines
+    from trader.quant.research import holdout_start_ms
+    from trader.storage.candles import check_quality
+
+    desk = TradingDesk()
+    holdout_start = str(desk.app.backtest["holdout_start"])
+    cutoff = holdout_start_ms(holdout_start)
+    try:
+        hourly, native, quality = {}, {}, {}
+        for symbol in SYMBOL_PRIORITY:
+            frame = desk.market.store.load(symbol, "1h")
+            if frame.empty:
+                raise ValueError(f"no stored 1h candles for {symbol}; run `trader ingest --intervals 1h` first")
+            dev = frame[frame["open_time"] < cutoff].reset_index(drop=True)
+            hourly[symbol] = dev
+            native[symbol] = desk.market.store.load(symbol, "1d")
+            quality[symbol] = check_quality(dev, symbol, "1h").as_dict()
+        runs = evaluate_daily_baselines(
+            hourly,
+            policy=load_risk_policy(desk.root).policy,
+            costs=desk.app.costs,
+            hourly_params=desk.app.strategies,
+            holdout_start=holdout_start,
+            validation=desk.app.validation,
+            registry=desk.registry,
+            root=desk.root,
+            native_daily=native,
+            data_quality=quality,
+        )
+    except Exception as exc:  # a failed run is still a recorded run
+        experiment_id = desk.registry.record(
+            "portfolio_backtest",
+            {"status": "failed", "role": "candidate", "protocol": PROTOCOL_PATH,
+             "reason": f"{type(exc).__name__}: {exc}", "holdout": {"status": "locked"}},
+        )  # fmt: skip
+        print(f"FAILED [{experiment_id}]: {type(exc).__name__}: {exc}")
+        return 1
+    _print([compact(run) for run in runs])
+    return 0
+
+
 def cmd_research_volatility_overlay(args: argparse.Namespace) -> int:
     from trader.quant.research import evaluate_volatility_overlay, record_volatility_overlay_family
     from trader.storage.candles import check_quality
@@ -645,6 +689,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--symbol")
     p.add_argument("--strategy", choices=["tsmom_trend_v1", "donchian_breakout_v1"])
     p.set_defaults(fn=cmd_research_volatility_daily)
+
+    sub.add_parser(
+        "research-daily-baselines",
+        help="run the preregistered daily-bar baselines portfolio protocol once (records 2 trials + 2 references)",
+    ).set_defaults(fn=cmd_research_daily_baselines)
 
     p = sub.add_parser(
         "research-turnover-attribution",
