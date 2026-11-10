@@ -1,0 +1,36 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# runtime data (candles, sqlite, models, audit logs, live unlock)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.parquet
+*.joblib
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# claude code local overrides
+.claude/settings.local.json
