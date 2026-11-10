@@ -43,10 +43,12 @@ FORBIDDEN = [
 ]
 # Shell or inline-code operations that write. Heuristic by design: false negatives are caught by the backend,
 # false positives block legitimate reads, so stream merges (2>&1, >&2) and null sinks are not writes.
+# The redirect pattern is matched only against the shell part of a command (quoted strings and heredoc bodies
+# removed), because '>' inside Python code is a comparison. Everything else is matched against the full command.
+SHELL_REDIRECT = r"(?<![-=<>])\d?>>?\s*(?!&|/dev/null\b|NUL\b|\$null\b)['\"]?[\w./\\~$-]"
 WRITE_VERBS = (
     r"("
-    r"(?<![-=<>])\d?>>?\s*(?!&|/dev/null\b|NUL\b|\$null\b)['\"]?[\w./\\~$-]"  # redirect into a file
-    r"|\bSet-Content\b|\bOut-File\b|\bAdd-Content\b|\bNew-Item\b|\bRemove-Item\b|\bMove-Item\b|\bCopy-Item\b|\bRename-Item\b"
+    r"\bSet-Content\b|\bOut-File\b|\bAdd-Content\b|\bNew-Item\b|\bRemove-Item\b|\bMove-Item\b|\bCopy-Item\b|\bRename-Item\b"
     r"|\bsed\s+-i\b|\btee\b|\brm\b|\bmv\b|\bcp\b|\btruncate\b"
     r"|\bgit\s+(checkout|restore|reset|apply|stash|rm|mv)\b"
     r"|\bopen\([^)]*['\"][wax]\+?b?['\"]|\bmode\s*=\s*['\"][wax]"  # open(..., 'w'/'a'/'x')
@@ -102,6 +104,23 @@ def check_edit(tool_input: dict, role: str, project: Path) -> None:
         )
 
 
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.DOTALL | re.MULTILINE)
+QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+
+
+def shell_part(command: str) -> str:
+    """The command with heredoc bodies and quoted strings replaced by a placeholder.
+
+    A redirect whose target is quoted (echo x > "file") still matches, because the placeholder follows '>'.
+    """
+    without_heredocs = HEREDOC.sub("<<HEREDOC", command)
+    return QUOTED.sub("Q", without_heredocs)
+
+
+def writes(command: str) -> bool:
+    return bool(re.search(WRITE_VERBS, command) or re.search(SHELL_REDIRECT, shell_part(command)))
+
+
 def check_shell(command: str, role: str) -> None:
     for pattern, what in HUMAN_ONLY:
         if re.search(pattern, command, re.IGNORECASE):
@@ -112,7 +131,7 @@ def check_shell(command: str, role: str) -> None:
     if (
         role == "trader"
         and re.search(TRADER_PROTECTED_PATHS, command, re.IGNORECASE)
-        and re.search(WRITE_VERBS, command)
+        and writes(command)
     ):
         deny(
             "trader sessions do not modify code, configuration, policy, skills or the experiment registry from a shell."

@@ -129,6 +129,10 @@ TRADER_SHELL_WRITES = [
     "python -c \"from pathlib import Path; Path('research/experiments/x.json').write_text('{}')\"",
     "python -c \"import os; os.remove('research/experiments/exp_1.json')\"",
     "python -c \"import shutil; shutil.rmtree('.claude/skills')\"",
+    'echo x > "configs/app.yaml"',
+    "cat > configs/app.yaml <<'EOF'\nmax_risk: 50\nEOF",
+    "python - <<'EOF'\nfrom pathlib import Path\nPath('research/experiments/x.json').write_text('{}')\nEOF",
+    "python - <<'EOF'\nimport os\nif 2 > 1: os.remove('configs/risk_policy.yaml')\nEOF",
 ]
 
 
@@ -159,6 +163,10 @@ def test_trader_role_cannot_modify_protected_paths_from_a_shell(command: str, tm
         "git diff HEAD -- src/trader/risk.py 2>&1 | head",
         "grep -n 'x => y' src/trader/desk.py",
         'python -c "print(1 if 3 >= 2 else 0)" configs/app.yaml',
+        # '>' as a comparison inside code (seen in a real session, 2026-11-10)
+        "python - <<'EOF'\nimport pandas as pd\nf = pd.read_parquet('data/candles/BTCUSDT/1h.parquet')\nd = f['open_time'].diff()\nprint(d[d > 3_600_000])\nEOF\ngrep -n 'quality' src/trader/desk.py",
+        'python -c "x = 5; print(x > 3)" research/experiments',
+        "grep -n 'if a > b' src/trader/execution.py",
     ],
 )
 def test_harmless_commands_pass(command: str, tmp_path: Path) -> None:
