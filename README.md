@@ -14,17 +14,19 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 |---|---|
 | Research & kiến trúc ([research/](research/), [architecture/](architecture/), 5 ADR, threat model) | Xong |
 | Core: config an toàn mặc định, domain model (Decimal), SQLite + journal append-only có hash chain, Parquet candles | Xong, có test |
-| Binance: REST public + signed (tập endpoint cố định, không retry mù lệnh), filters, kline stream | Market data đã chạy thật; **order adapter Demo/Live mới chỉ test với HTTP giả lập** (chưa có demo key) |
+| Binance: REST public + signed (tập endpoint cố định, không retry mù lệnh), filters, kline stream, stop `STOP_LOSS`, thoát lệnh bằng `cancelReplace` | Market data đã chạy thật; **order adapter Demo/Live mới chỉ test với HTTP giả lập** (chưa có demo key) |
 | Quant: features nhân quả, regime, 2 baseline strategy, backtester, PSR/DSR/PBO, experiment registry, holdout khóa | Xong, có test |
 | ML: triple-barrier, purged walk-forward, calibration | Xong; model **không** dùng cho quyết định |
 | Risk engine + execution: sizing phía server, intent → duyệt → re-validate → order → reconcile, kill switch, khóa live | Xong, có test (paper chạy end-to-end với giá thật) |
+| Bảo vệ vị thế: mỗi vị thế có trạng thái `PROTECTED/UNPROTECTED/UNKNOWN`; mất stop → tự bật kill switch, chặn lệnh vào mới, `protect_position` để đặt lại | Xong, test với broker giả lập (stop bị reject, unknown, khớp từng phần, race khi thoát lệnh) |
 | News/web: provider Tavily/Brave (tùy chọn), fetch chống SSRF, lưu point-in-time | Xong, có test |
-| MCP server `trading`: 27 tools, 8 resources, 4 prompts | Xong, có test |
+| MCP server `trading`: 29 tools, 8 resources, 4 prompts; khởi động qua `scripts/run_mcp.py` (tự tìm `.venv`) | Xong, có test (kể cả test spawn server qua stdio thật) |
 | Knowledge base ([knowledge/](knowledge/)) | Bộ tài liệu khởi đầu, đều ở trạng thái `candidate` |
-| Claude Code harness | Đã nối 3 hook `SessionStart`, `PreToolUse`, `PostToolUse`; 4 skills, 2 subagents chỉ đọc; MCP và permission prompt theo least privilege; có test tích hợp |
+| Claude Code harness | `CLAUDE.md`; 4 skills kèm template/reference; 2 subagents chỉ đọc; 3 hook (`SessionStart`, `PreToolUse`, `PostToolUse`); permission least privilege; `state/` để bàn giao giữa các session; [docs/operating-the-trading-desk.md](docs/operating-the-trading-desk.md) |
+| Harness eval | 6 kịch bản chạy bằng session `claude -p` mới với Haiku, chấm bằng code. Baseline 5/6 → sau khi sửa skill: 5 kịch bản đạt mọi lần, S2 đạt 3/3 lần cuối. Xem [reports/harness-eval/](reports/harness-eval/) |
 | Volatility-scaled exposure | Challenger cho 2 baseline, rolling walk-forward và 2× cost stress; chưa qua toàn bộ gate, không bật paper/live |
 
-Kiểm tra gần nhất: toàn bộ pytest pass, `trader doctor` pass, `ruff` và `mypy` sạch.
+Kiểm tra gần nhất (2026-11-10): 285 test pass, `ruff` và `mypy` sạch.
 
 ## Kết quả nghiên cứu thật (development period, sau phí)
 
@@ -129,9 +131,22 @@ python -m trader doctor --network      # kiểm tra config, policy, DB, MCP serv
 python -m pytest -q
 ```
 
-Trên macOS/Linux thay `.venv\Scripts\python.exe` bằng `.venv/bin/python`. Chạy Claude Code từ shell đã activate `.venv` để MCP server dùng đúng môi trường.
+Trên macOS/Linux thay `.venv\Scripts\python.exe` bằng `.venv/bin/python`. Không cần `uv`: `python -m venv .venv` rồi
+`pip install -r requirements.lock` và `pip install -e . --no-deps` cũng được. MCP server tự tìm `.venv` qua
+`scripts/run_mcp.py`, không cần activate trước khi mở Claude Code.
 
 Không cần API key để chạy `PAPER`. Tùy chọn: copy `.env.example` → `.env` (không bao giờ dán key vào chat).
+
+## Bắt đầu một session Claude Code
+
+1. Mở `claude` ở thư mục gốc repo (terminal hoặc VS Code), với role mặc định `trader`: **không** có
+   `.claude/settings.local.json` đặt `builder`.
+2. Lần đầu: **chấp nhận hộp thoại workspace trust**. Nếu chưa trust, rule `allow` của project bị bỏ qua và mọi tool
+   đọc đều hỏi quyền. Duyệt MCP server `trading`, sau đó `/mcp` phải hiện `trading · connected`.
+3. Gõ `/trading-desk`. Claude kiểm tra trạng thái hệ thống, risk, vị thế (`sync_positions` sẽ hỏi bạn duyệt) rồi hỏi
+   bạn muốn làm gì, ví dụ "phân tích BTCUSDT".
+
+Chi tiết (role, các tool cần duyệt, quy trình approve, xử lý sự cố): [docs/operating-the-trading-desk.md](docs/operating-the-trading-desk.md).
 
 ## Lệnh hay dùng
 
@@ -146,6 +161,7 @@ python -m trader research-turnover-attribution # diagnostic replay; không tính
 python -m trader train-model --symbol BTCUSDT --model logreg_v1
 python -m trader kill-switch engage --reason "..."
 python -m trader mcp                         # chạy MCP server (stdio)
+python scripts/harness_eval.py --label run   # eval harness bằng Haiku (tốn quota Claude, ~$0.05/lần)
 ```
 
 Lệnh **chỉ người vận hành** chạy được (cần terminal thật, bị từ chối nếu gọi từ Claude Code):
@@ -157,6 +173,9 @@ Lệnh **chỉ người vận hành** chạy được (cần terminal thật, b�
 - Validate hai lần (lúc tạo và lúc thực thi với dữ liệu mới); thiếu dữ liệu/dữ liệu cũ/policy lỗi → từ chối (fail closed).
 - `PAPER`: duyệt qua permission prompt của Claude Code. `BINANCE_DEMO`/`LIVE`: duyệt bằng CLI ngoài LLM, dùng một lần, có hạn.
 - Kết quả lệnh không rõ (timeout/5xx) → đối chiếu theo client order ID, **không gửi lại**.
+- Mỗi vị thế trên sàn có stop `STOP_LOSS` (stop-market). Stop lỗi hoặc không rõ trạng thái → kill switch tự bật, chặn
+  lệnh vào mới cho tới khi vị thế được bảo vệ lại. Thoát lệnh dùng `cancelReplace` nên không còn khoảng hở
+  "đã hủy stop nhưng bán thất bại".
 - `LIVE` cần đồng thời: `TRADING_MODE=LIVE`, `LIVE_TRADING_ENABLED=true`, key live, risk policy `status: approved`, và `live-unlock` còn hạn.
 - Không có code rút/chuyển tiền, margin hay leverage.
 - Giới hạn đã biết: ranh giới LLM ↔ execution là logic, cùng OS user — xem [architecture/threat-model.md](architecture/threat-model.md) (T3) trước khi dùng tiền thật.
@@ -172,7 +191,12 @@ configs/           app.yaml, risk_policy.yaml
 research/          research Phase 0, source register, experiments/ (mọi lần chạy, kể cả thất bại)
 architecture/      system design, threat model, risk policy draft, ADR
 knowledge/         knowledge base có provenance và status
-.claude/           settings, hooks, skills, read-only agents
+.claude/           settings, hooks, skills (+ references), read-only agents
+CLAUDE.md          luật cho mọi session Claude Code
+docs/              hướng dẫn vận hành cho operator
+state/             ghi chú bàn giao giữa các session, plan hiện tại
+scripts/           run_mcp.py (khởi động MCP), harness_eval.py
+reports/           kết quả eval harness (transcript thô git-ignored)
 tests/             unit, contract (Binance giả lập), integration, failure paths
 data/              runtime (git-ignored): candles, SQLite, models
 ```
@@ -180,8 +204,11 @@ data/              runtime (git-ignored): candles, SQLite, models
 ## Việc tiếp theo
 
 1. Không tune thêm volatility band trên development OOS đã xem; tiếp tục giữ holdout khóa.
-2. Nếu nghiên cứu tiếp, thu thập dữ liệu forward chưa dùng và đo fill/slippage ở Demo Mode trước khi cân nhắc paper trading.
-3. Chỉ đề cử paper-test khi một ứng viên mới vượt toàn bộ gate trên dữ liệu hợp lệ và vẫn bền ở chi phí stress.
+2. Chạy thử một chu trình Binance Demo có giám sát (vào lệnh → stop `PROTECTED` → `sync_positions` → thoát bằng SELL
+   intent) để kiểm chứng execution ngoài môi trường giả lập; đo fill/slippage thật.
+3. Research (chưa làm): backtest danh mục dùng chung sizing với risk engine; bootstrap trên lợi nhuận ngày; giả thuyết
+   baseline khung 1d để giảm turnover. Đăng ký trước, chỉ một trial.
+4. Chỉ đề cử paper-test khi một ứng viên mới vượt toàn bộ gate trên dữ liệu hợp lệ và vẫn bền ở chi phí stress.
 
 Dự án khởi đầu từ một prompt đặc tả (không nằm trong repo). Thiết kế hiện tại nằm ở [architecture/](architecture/);
 những điểm khác với đặc tả ban đầu được ghi ở [research/research-log.md](research/research-log.md).
