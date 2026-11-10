@@ -47,7 +47,12 @@ the model, not the market, and is unstable for collinear features.
   without `--unlock-holdout`, and each unlock is written to the experiment log. A holdout that has been looked at more
   than once is no longer a holdout.
 - **Trial accounting**: every backtest/model run appends a record to the experiment registry — failures included — so
-  the number of trials is known when DSR is computed.
+  the number of trials is known when DSR is computed. Since 2026-11-11 the DSR count (`ExperimentRegistry.trials`)
+  excludes the benchmarks `buy_and_hold` / `no_trade` and diagnostic records, and includes every ML model evaluation
+  (which adds to N but has no Sharpe for the variance) and every portfolio candidate. Sharpe ratios from different bar
+  intervals are rescaled to the candidate's interval (× √(bars per year ratio)) before their variance is taken.
+- **Daily bootstrap**: portfolio results are also judged on UTC-day returns with a circular block bootstrap at 5, 10
+  and 20-day blocks reported side by side (`stats.daily_bootstrap_sensitivity`); a gate uses the lowest lower bound.
 - **PSR / DSR** (DSR, literature): implemented in `src/trader/quant/stats.py`. DSR needs the number of trials and the
   variance of their Sharpe ratios; correlated trials make the effective N smaller than the count, so we report DSR with
   the raw count as a conservative bound and say so.
@@ -97,6 +102,12 @@ Every report prints the cost assumptions next to the result. A sensitivity run a
 The simulator is deliberately simple: one symbol at a time, long/flat, next-open fills, intrabar stops, proportional
 costs. It is a measuring instrument for coarse hypotheses, not a market simulator.
 
+`quant/portfolio.py` (2026-11-11) runs several symbols on one shared account under the risk policy: entry size from a
+float mirror of `risk.compute_sizing` (parity tested), 20% notional cap, 50% total exposure, at most 2 positions, stop
+distance band, daily/7-day loss limits, drawdown floor and loss cooldown; same fills, stops and cost model as the
+single-symbol simulator. When more symbols signal than slots allow, the fixed universe order (BTC, ETH, SOL, BNB)
+decides — a data-independent rule, reported with the rejection counts. Positions are not resized after entry.
+
 ## 6. Metrics
 
 Grouped by purpose; backtest metrics and statistics are implemented in `src/trader/quant/stats.py` unless noted.
@@ -122,7 +133,7 @@ No threshold below is validated; all are **provisional** and live in `configs/ap
 
 | Gate | Provisional rule | Rationale |
 |---|---|---|
-| Enough trades | ≥ 100 out-of-sample trades | Below that, win-rate and expectancy intervals are too wide to rank anything |
+| Enough trades (`min_evaluation_trades`, formerly `min_oos_trades`) | ≥ 100 closed trades in the evaluated period; each record names that period in `trade_count_gate.period` (whole development period for `trader backtest`, walk-forward test folds for the overlays, the development OOS window for portfolio runs) | Below that, win-rate and expectancy intervals are too wide to rank anything |
 | Better than nothing | Lower bound of the 90% bootstrap CI of OOS Sharpe > 0 | "No trade" earns 0 without risk |
 | Selection-robust | DSR ≥ 0.5 using the full trial count | Weak gate, intentionally; DSR ≥ 0.95 is the conventional strong claim |
 | Cost-robust | Still positive at 2× costs | Our cost inputs are guesses |

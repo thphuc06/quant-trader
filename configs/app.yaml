@@ -79,7 +79,9 @@ backtest:
 
 # Provisional acceptance gates (research/ml-and-validation.md section 6).
 validation:
-  min_oos_trades: 100
+  # closed trades in the evaluated period; each record's trade_count_gate.period names that period
+  # (renamed from min_oos_trades on 2026-11-11; old records keep gates_provisional.enough_trades)
+  min_evaluation_trades: 100
   bootstrap_ci: 0.90
   min_dsr: 0.5
   cost_stress_multiplier: 2.0

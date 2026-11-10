@@ -487,7 +487,7 @@ def test_volatility_overlay_walk_forward_keeps_holdout_locked_and_unread(tmp_pat
             params={"ema_fast": 24, "ema_slow": 168, "mom_lookback": 168, "atr_stop_mult": 3.0},
             costs=CostConfig(),
             holdout_start=boundary,
-            validation={"min_oos_trades": 100, "min_dsr": 0.5},
+            validation={"min_evaluation_trades": 100, "min_dsr": 0.5},
             registry=registry,
             root=tmp_path,
             daily_rebalance=True,

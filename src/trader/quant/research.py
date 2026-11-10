@@ -36,6 +36,8 @@ from trader.quant.strategies import (
 )
 from trader.timeutil import bars_per_year, from_ms, iso, to_ms, utc_now
 
+BENCHMARK_STRATEGIES = frozenset({"buy_and_hold", "no_trade"})
+
 STANDARD_LIMITATIONS = [
     "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
     "Fees, spread and slippage are provisional assumptions, not measured fills.",
@@ -44,6 +46,11 @@ STANDARD_LIMITATIONS = [
     "Single-symbol long/flat simulation; no portfolio effects.",
     "A backtest is not evidence of future profitability. Passing gates justifies paper trading only.",
 ]
+
+
+def min_evaluation_trades(validation: dict[str, float]) -> int:
+    """Trade-count gate. ``min_oos_trades`` is the pre-2026-11-11 name, still read for old configs."""
+    return int(validation.get("min_evaluation_trades", validation.get("min_oos_trades", 100)))
 
 
 def holdout_start_ms(holdout_start: str) -> int:
@@ -111,20 +118,70 @@ class ExperimentRegistry:
         path = self.directory / f"{experiment_id}.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    def trial_sharpes(self) -> list[float]:
-        values = []
-        for kind in ("backtest", "volatility_overlay"):
-            for record in self.records(kind):
-                section = record.get("development", {}) if kind == "backtest" else record.get("overlay", {})
-                sr = section.get("sharpe_per_period")
-                if isinstance(sr, int | float) and np.isfinite(sr):
-                    values.append(float(sr))
-        for record in self.records("pbo"):  # every configuration of a parameter family is a trial too
-            values.extend(
-                float(s)
-                for s in record.get("config_sharpes_per_period", [])
-                if isinstance(s, int | float) and np.isfinite(s)
+    def trials(self) -> list[dict[str, Any]]:
+        """Every registered evaluation that counts toward the DSR trial count.
+
+        Counted: single-strategy backtests (except the benchmarks ``buy_and_hold`` / ``no_trade``, which are
+        references, not candidates), volatility-overlay results, each configuration of a PBO family, each ML model
+        evaluation (no Sharpe: it adds to N but not to the Sharpe variance) and portfolio candidates.
+        Not counted: records marked ``diagnostic_only`` / ``counts_toward_dsr: false``, portfolio references, and
+        invocations that failed before producing any result (nothing was looked at).
+        """
+        out: list[dict[str, Any]] = []
+
+        def add(record: dict[str, Any], sharpe: Any) -> None:
+            finite = isinstance(sharpe, int | float) and bool(np.isfinite(sharpe))
+            out.append(
+                {
+                    "experiment_id": record.get("experiment_id"),
+                    "kind": record.get("kind"),
+                    "interval": record.get("interval") or "1h",
+                    "sharpe_per_period": float(sharpe) if finite else None,
+                }
             )
+
+        for record in self.records():
+            if record.get("diagnostic_only") or record.get("counts_toward_dsr") is False:
+                continue
+            kind = record.get("kind")
+            if kind == "backtest":
+                if record.get("strategy") not in BENCHMARK_STRATEGIES:
+                    add(record, record.get("development", {}).get("sharpe_per_period"))
+            elif kind == "volatility_overlay":
+                sharpe = record.get("overlay", {}).get("sharpe_per_period")
+                if sharpe is not None:
+                    add(record, sharpe)
+            elif kind == "pbo":  # every configuration of a parameter family is a trial too
+                for sharpe in record.get("config_sharpes_per_period", []):
+                    add(record, sharpe)
+            elif kind == "ml_model":
+                if record.get("status", "ok") == "ok":
+                    add(record, None)
+            elif (
+                kind == "portfolio_backtest"
+                and record.get("role") == "candidate"
+                and record.get("status", "ok") == "ok"
+            ):
+                add(record, record.get("portfolio", {}).get("sharpe_per_period"))
+        return out
+
+    def trial_count(self) -> int:
+        return len(self.trials())
+
+    def trial_sharpes(self, target_interval: str | None = None) -> list[float]:
+        """Finite per-period Sharpe ratios of counted trials.
+
+        With ``target_interval``, each value is rescaled from its own bar interval to that interval
+        (x sqrt(bars_per_year(source) / bars_per_year(target))) so trials on different clocks share units.
+        """
+        values = []
+        for trial in self.trials():
+            sharpe = trial["sharpe_per_period"]
+            if sharpe is None:
+                continue
+            if target_interval is not None:
+                sharpe *= math.sqrt(bars_per_year(trial["interval"]) / bars_per_year(target_interval))
+            values.append(sharpe)
         return values
 
 
@@ -282,10 +339,11 @@ def evaluate_volatility_overlay(
 
     prior = registry.trial_sharpes()
     all_sharpes = [*prior, float(overlay_metrics["sharpe_per_period"])]
+    n_trials = registry.trial_count() + 1
     finite = [s for s in all_sharpes if np.isfinite(s)]
     variance = float(np.var(finite, ddof=1)) if len(finite) >= 2 else 0.0
     dsr = deflated_sharpe_ratio(
-        challenger_result.returns.iloc[1:].fillna(0.0).to_numpy(dtype=float), len(all_sharpes), variance
+        challenger_result.returns.iloc[1:].fillna(0.0).to_numpy(dtype=float), n_trials, variance
     )
     improved_folds = sum(
         row["overlay"]["sharpe"] is not None
@@ -294,7 +352,7 @@ def evaluate_volatility_overlay(
         for row in fold_results
     )
     gates = {
-        "enough_trades": overlay_metrics["trades"] >= validation.get("min_oos_trades", 100),
+        "enough_trades": overlay_metrics["trades"] >= min_evaluation_trades(validation),
         "sharpe_ci_above_zero": bool(
             np.isfinite(overlay_metrics["sharpe_ci_annualized"][0])
             and overlay_metrics["sharpe_ci_annualized"][0] > 0
@@ -384,8 +442,11 @@ def evaluate_volatility_overlay(
         "overlay_at_stressed_costs": {"multiplier": float(validation.get("cost_stress_multiplier", 2.0)), **stressed_metrics},
         "paired_sharpe_difference_ci_annualized": list(sharpe_diff_ci),
         "folds": fold_results,
-        "selection_bias": {"trials_including_this": len(all_sharpes), "sharpe_variance_across_trials": variance,
+        "selection_bias": {"trials_including_this": n_trials, "sharpe_variance_across_trials": variance,
                            "deflated_sharpe_ratio": dsr},
+        "trade_count_gate": {"min_evaluation_trades": min_evaluation_trades(validation),
+                             "trades": overlay_metrics["trades"],
+                             "period": "walk-forward OOS test folds of the development period"},
         "gates_provisional": gates,
         "all_gates_passed": all(gates.values()),
         "holdout": {"status": "locked"},
@@ -408,13 +469,14 @@ def record_volatility_overlay_family(
     historical = registry.trial_sharpes()
     family = [float(result["overlay"]["sharpe_per_period"]) for result in results]
     all_sharpes = [*historical, *family]
+    n_trials = registry.trial_count() + len(family)
     finite = [value for value in all_sharpes if np.isfinite(value)]
     variance = float(np.var(finite, ddof=1)) if len(finite) >= 2 else 0.0
     for result in results:
         returns = result.pop("_oos_returns")
-        dsr = deflated_sharpe_ratio(returns, len(all_sharpes), variance)
+        dsr = deflated_sharpe_ratio(returns, n_trials, variance)
         result["selection_bias"] = {
-            "trials_including_this": len(all_sharpes),
+            "trials_including_this": n_trials,
             "sharpe_variance_across_trials": variance,
             "deflated_sharpe_ratio": dsr,
             "note": "DSR counts all earlier registered trials and every candidate in this predeclared batch.",
@@ -527,15 +589,16 @@ def evaluate_strategy(
         stressed.modeled_costs_by_component_and_reason,
     )
 
+    is_benchmark = strategy in BENCHMARK_STRATEGIES
     prior = registry.trial_sharpes()
-    all_sharpes = [*prior, development["sharpe_per_period"]]
+    all_sharpes = prior if is_benchmark else [*prior, development["sharpe_per_period"]]
     finite = [s for s in all_sharpes if np.isfinite(s)]
-    n_trials = len(all_sharpes)
+    n_trials = registry.trial_count() + (0 if is_benchmark else 1)
     variance = float(np.var(finite, ddof=1)) if len(finite) >= 2 else 0.0
     dsr = deflated_sharpe_ratio(dev_result.returns.fillna(0.0).to_numpy(), n_trials, variance)
 
     gates = {
-        "enough_trades": development["trades"] >= validation.get("min_oos_trades", 100),
+        "enough_trades": development["trades"] >= min_evaluation_trades(validation),
         "sharpe_ci_above_zero": bool(
             np.isfinite(development["sharpe_ci_annualized"][0]) and development["sharpe_ci_annualized"][0] > 0
         ),
@@ -570,6 +633,12 @@ def evaluate_strategy(
             "sharpe_variance_across_trials": variance,
             "deflated_sharpe_ratio": dsr,
             "note": "DSR uses the raw trial count as if trials were independent (conservative). PBO needs a configuration family; see `trader pbo`.",
+            "counts_as_trial": not is_benchmark,
+        },
+        "trade_count_gate": {
+            "min_evaluation_trades": min_evaluation_trades(validation),
+            "trades": development["trades"],
+            "period": "development period (all pre-holdout bars; single pass, no walk-forward split)",
         },
         "gates_provisional": gates,
         "all_gates_passed": all(gates.values()),

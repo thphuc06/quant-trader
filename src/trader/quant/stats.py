@@ -89,6 +89,48 @@ def block_bootstrap_ci(
     return float(lo), float(hi)
 
 
+DAILY_BOOTSTRAP_BLOCKS = (5, 10, 20)
+
+
+def daily_bootstrap_sensitivity(
+    daily_returns: np.ndarray,
+    blocks: tuple[int, ...] = DAILY_BOOTSTRAP_BLOCKS,
+    n_boot: int = 2000,
+    ci: float = 0.90,
+    days_per_year: float = 365.0,
+    seed: int = 7,
+) -> dict[str, Any]:
+    """Circular block bootstrap on DAILY returns at several block lengths, reported side by side.
+
+    Crypto trades every day, so annualization uses 365. The block length is a modelling choice (how long serial
+    dependence lasts); showing 5/10/20-day blocks together makes that choice visible. ``most_conservative`` takes
+    the lowest lower bound across block lengths, which is what a gate should use.
+    """
+    r = np.asarray(daily_returns, dtype=float)
+    r = r[np.isfinite(r)]
+    scale = math.sqrt(days_per_year)
+    by_block: dict[str, dict[str, Any]] = {}
+    for block in blocks:
+        s_lo, s_hi = block_bootstrap_ci(r, "sharpe", block=block, n_boot=n_boot, ci=ci, seed=seed)
+        t_lo, t_hi = block_bootstrap_ci(r, "total_return", block=block, n_boot=n_boot, ci=ci, seed=seed)
+        by_block[f"{block}d"] = {
+            "block_days": block,
+            "sharpe_ci_annualized": [s_lo * scale, s_hi * scale],
+            "total_return_ci": [t_lo, t_hi],
+        }
+    lows = [v["sharpe_ci_annualized"][0] for v in by_block.values() if math.isfinite(v["sharpe_ci_annualized"][0])]
+    point = sharpe_per_period(r)
+    return {
+        "days": len(r),
+        "ci_level": ci,
+        "n_boot": n_boot,
+        "sharpe_annualized": point * scale if math.isfinite(point) else float("nan"),
+        "total_return": float(np.prod(1.0 + r) - 1.0) if len(r) else 0.0,
+        "by_block": by_block,
+        "most_conservative_sharpe_lower": min(lows) if len(lows) == len(by_block) else float("nan"),
+    }
+
+
 def paired_sharpe_difference_ci(
     baseline: np.ndarray,
     challenger: np.ndarray,
