@@ -1,11 +1,19 @@
 # Implementation plan — harness, eval, execution safety (approved 2026-11-10)
 
-## Status (2026-11-10, end of day)
+## Status (2026-11-11)
 
 - Steps 1–4: **done** (`213b4ec`, `3fa474c`, `5d4d610`, `28caf92`), plus fixes found in the first live trader
   sessions: data-quality window/status (`72442e8`) and guard redirect false positives (`96ed218`).
-- Next (approved by the operator): forward shadow log, Step 5 research reliability, one pre-registered daily-bar
-  hypothesis. Instructions for the next session: [next-session-prompt.md](next-session-prompt.md).
+- Builder session 2026-11-11 ([next-session-prompt.md](next-session-prompt.md)), all **done**:
+  - Forward shadow log `ca8b0d0`: `trader shadow-log`, append-only `shadow_log` table, `get_shadow_log` tool. First
+    live run logged the 2026-11-10 16:00 UTC bar. **Waiting on the operator to register the hourly task** (docs §9).
+  - Step 5 research reliability `50b8148`: portfolio backtester, daily bootstrap 5/10/20-day blocks,
+    `min_evaluation_trades`, DSR trial accounting (benchmarks out, ML in; 63 counted trials before the new run).
+  - Pre-registered daily-bar baselines: protocol `c95654c`, runner `b9d0497`, result `8595acc`. Turnover cut ~95%,
+    still positive at 2× costs, but fails trade count / Sharpe CI / DSR → inconclusive, no paper candidate.
+- Open decisions for the operator: (1) register the shadow-log task; (2) whether to add the two daily rules to the
+  shadow log as forward observation (a plan change); (3) whether the 10% drawdown floor interacting with hourly
+  baselines needs a policy review (both hourly references tripped it in the portfolio backtest).
 - Later: supervised Binance Demo cycle (needs demo keys), news provider key.
 
 ---
