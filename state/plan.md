@@ -1,5 +1,15 @@
 # Implementation plan — harness, eval, execution safety (approved 2026-11-10)
 
+## Status (2026-11-10, end of day)
+
+- Steps 1–4: **done** (`213b4ec`, `3fa474c`, `5d4d610`, `28caf92`), plus fixes found in the first live trader
+  sessions: data-quality window/status (`72442e8`) and guard redirect false positives (`96ed218`).
+- Next (approved by the operator): forward shadow log, Step 5 research reliability, one pre-registered daily-bar
+  hypothesis. Instructions for the next session: [next-session-prompt.md](next-session-prompt.md).
+- Later: supervised Binance Demo cycle (needs demo keys), news provider key.
+
+---
+
 Scope approved by operator: **Steps 1–4**. Step 5 (research reliability) deferred.
 Eval budget approved: `--max-budget-usd 0.5` per scenario.
 Prerequisite: builder role (`.claude/settings.local.json` → `{"env": {"TRADER_SESSION_ROLE": "builder"}}`, restart session).
