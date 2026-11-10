@@ -1,0 +1,94 @@
+{
+  "config_sharpes_per_period": [
+    -0.002989686635534762,
+    -0.002310343797237872,
+    -0.003992092536400234,
+    0.0013288082979338975,
+    0.004673206200406851,
+    0.005600607231120295,
+    0.0023850183282639525,
+    0.003334736602901388,
+    0.005949522931266874,
+    0.009119231354143813,
+    0.0063960190054925745,
+    0.0043447084483898175
+  ],
+  "created_at": "2026-11-10T09:35:42Z",
+  "experiment_id": "exp_79263ebab02948ddb4b3",
+  "family": [
+    {
+      "atr_stop_mult": 2.0,
+      "entry_lookback": 48,
+      "exit_lookback": 24
+    },
+    {
+      "atr_stop_mult": 3.0,
+      "entry_lookback": 48,
+      "exit_lookback": 24
+    },
+    {
+      "atr_stop_mult": 4.0,
+      "entry_lookback": 48,
+      "exit_lookback": 24
+    },
+    {
+      "atr_stop_mult": 2.0,
+      "entry_lookback": 96,
+      "exit_lookback": 48
+    },
+    {
+      "atr_stop_mult": 3.0,
+      "entry_lookback": 96,
+      "exit_lookback": 48
+    },
+    {
+      "atr_stop_mult": 4.0,
+      "entry_lookback": 96,
+      "exit_lookback": 48
+    },
+    {
+      "atr_stop_mult": 2.0,
+      "entry_lookback": 168,
+      "exit_lookback": 84
+    },
+    {
+      "atr_stop_mult": 3.0,
+      "entry_lookback": 168,
+      "exit_lookback": 84
+    },
+    {
+      "atr_stop_mult": 4.0,
+      "entry_lookback": 168,
+      "exit_lookback": 84
+    },
+    {
+      "atr_stop_mult": 2.0,
+      "entry_lookback": 336,
+      "exit_lookback": 168
+    },
+    {
+      "atr_stop_mult": 3.0,
+      "entry_lookback": 336,
+      "exit_lookback": 168
+    },
+    {
+      "atr_stop_mult": 4.0,
+      "entry_lookback": 336,
+      "exit_lookback": 168
+    }
+  ],
+  "holdout": {
+    "status": "locked"
+  },
+  "interval": "1h",
+  "kind": "pbo",
+  "note": "Each configuration counts as a trial for DSR.",
+  "result": {
+    "combinations": 252,
+    "configurations": 12,
+    "pbo": 0.4523809523809524,
+    "status": "ok"
+  },
+  "strategy": "donchian_breakout_v1",
+  "symbol": "BTCUSDT"
+}

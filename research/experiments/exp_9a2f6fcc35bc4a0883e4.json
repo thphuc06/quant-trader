@@ -1,0 +1,95 @@
+{
+  "all_gates_passed": false,
+  "code_commit": "7f985f0",
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-10T09:35:22Z",
+  "data": {
+    "development_bars": 35029,
+    "first_bar": "2021-11-11T10:00:00Z",
+    "holdout_bars": 8769,
+    "holdout_start": "2025-11-10",
+    "last_bar": "2026-11-10T08:00:00Z"
+  },
+  "development": {
+    "annualized_volatility": 0.5358000808893818,
+    "avg_bars_held": 75.528,
+    "avg_loss": -0.03991938809954903,
+    "avg_win": 0.11383335585801002,
+    "bars": 35029,
+    "cagr": 0.11452737724738138,
+    "calmar": 0.18951126712619654,
+    "expectancy_per_trade": 0.008051468015209394,
+    "exposure": 0.26963373205058666,
+    "max_consecutive_losses": 7,
+    "max_drawdown": -0.6043301751083592,
+    "max_drawdown_duration_bars": 16770,
+    "net_total_return": 0.5427794010976721,
+    "payoff_ratio": 2.851580679897646,
+    "profit_factor": 1.2931586804186996,
+    "psr_vs_zero": 0.826623897723738,
+    "sharpe": 0.46940759848273667,
+    "sharpe_ci_annualized": [
+      -0.3213303219531456,
+      1.2391248978302007
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.005015313234427262,
+    "sortino": 0.6918432522974004,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 16,
+      "median": -0.010603125812287839,
+      "positive_share": 0.5,
+      "worst": -0.2610215812511377
+    },
+    "trades": 125,
+    "trades_per_year": 31.259813297553457,
+    "win_rate": 0.312,
+    "worst_day": -0.1588511032403198,
+    "years": 4.0
+  },
+  "development_at_stressed_costs": {
+    "max_drawdown": -0.6369239055436448,
+    "multiplier": 2.0,
+    "net_total_return": 0.11254259417496915,
+    "sharpe": 0.3171684035440713
+  },
+  "experiment_id": "exp_9a2f6fcc35bc4a0883e4",
+  "gates_provisional": {
+    "dsr_at_least_min": true,
+    "enough_trades": true,
+    "positive_at_stressed_costs": true,
+    "sharpe_ci_above_zero": false
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "donchian_breakout_v1 earns a positive net return on SOLUSDT 1h",
+  "interval": "1h",
+  "kind": "backtest",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "Single symbol, fully invested when long; no portfolio effects.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only."
+  ],
+  "params": {
+    "atr_stop_mult": 3.0,
+    "entry_lookback": 96.0,
+    "exit_lookback": 48.0
+  },
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.5098689895793569,
+    "note": "DSR uses the raw trial count as if trials were independent (conservative). PBO needs a configuration family; see `trader pbo`.",
+    "sharpe_variance_across_trials": 9.062388126047712e-06,
+    "trials_including_this": 11
+  },
+  "strategy": "donchian_breakout_v1",
+  "symbol": "SOLUSDT"
+}

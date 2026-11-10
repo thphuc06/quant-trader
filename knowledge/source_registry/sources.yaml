@@ -1,0 +1,51 @@
+# Domain -> source type. Categorical on purpose: a numeric "reliability score" would imply precision we do not have.
+# Sub-domains inherit (www.binance.com matches binance.com). Unlisted domains are "unknown".
+# Listing a domain here is a judgement by the operator, not a guarantee that any single article is right.
+version: 1
+updated: 2026-11-10
+
+types:
+  primary_official: Issuer of the fact itself (exchange, regulator, project, central bank). Can establish a fact.
+  reputable_secondary: Established newsroom with corrections policy. Fact if clearly sourced or corroborated.
+  specialist_data: Data vendor or research desk. Numbers with vendor caveats.
+  social_community: Social networks and forums. Leads only, never a fact.
+  unknown: Everything else. Leads only.
+
+domains:
+  primary_official:
+    - binance.com
+    - developers.binance.com
+    - sec.gov
+    - cftc.gov
+    - federalreserve.gov
+    - treasury.gov
+    - ecb.europa.eu
+    - bis.org
+    - bitcoin.org
+    - ethereum.org
+    - solana.com
+    - bnbchain.org
+  reputable_secondary:
+    - reuters.com
+    - bloomberg.com
+    - ft.com
+    - wsj.com
+    - apnews.com
+    - coindesk.com
+    - theblock.co
+  specialist_data:
+    - coinmetrics.io
+    - glassnode.com
+    - kaiko.com
+    - coinglass.com
+    - defillama.com
+  social_community:
+    - x.com
+    - twitter.com
+    - reddit.com
+    - t.me
+    - telegram.org
+    - discord.com
+    - youtube.com
+    - medium.com
+    - binance.com/square

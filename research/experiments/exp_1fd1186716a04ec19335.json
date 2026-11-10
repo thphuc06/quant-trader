@@ -1,0 +1,91 @@
+{
+  "all_gates_passed": false,
+  "code_commit": "7f985f0",
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-10T09:34:53Z",
+  "data": {
+    "development_bars": 35029,
+    "first_bar": "2021-11-11T10:00:00Z",
+    "holdout_bars": 8769,
+    "holdout_start": "2025-11-10",
+    "last_bar": "2026-11-10T08:00:00Z"
+  },
+  "development": {
+    "annualized_volatility": 1.0198143531164812,
+    "avg_bars_held": null,
+    "avg_loss": null,
+    "avg_win": null,
+    "bars": 35029,
+    "cagr": -0.09195851060741589,
+    "calmar": -0.09516974787210075,
+    "expectancy_per_trade": null,
+    "exposure": 0.999971452225299,
+    "max_consecutive_losses": 0,
+    "max_drawdown": -0.9662577937161243,
+    "max_drawdown_duration_bars": 26372,
+    "net_total_return": -0.32005250765534343,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr_vs_zero": 0.7966502563212382,
+    "sharpe": 0.4146417011234685,
+    "sharpe_ci_annualized": [
+      -0.42175523349057525,
+      1.2367856833834627
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.004430175433699215,
+    "sortino": 0.598452387992486,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 16,
+      "median": -0.07174260719238107,
+      "positive_share": 0.4375,
+      "worst": -0.5407368575684802
+    },
+    "trades": 0,
+    "trades_per_year": 0.0,
+    "win_rate": null,
+    "worst_day": -0.3972173913043482,
+    "years": 4.0
+  },
+  "development_at_stressed_costs": {
+    "max_drawdown": -0.9662577937161246,
+    "multiplier": 2.0,
+    "net_total_return": -0.32093759000244404,
+    "sharpe": 0.4143240616579607
+  },
+  "experiment_id": "exp_1fd1186716a04ec19335",
+  "gates_provisional": {
+    "dsr_at_least_min": true,
+    "enough_trades": false,
+    "positive_at_stressed_costs": false,
+    "sharpe_ci_above_zero": false
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "buy_and_hold earns a positive net return on SOLUSDT 1h",
+  "interval": "1h",
+  "kind": "backtest",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "Single symbol, fully invested when long; no portfolio effects.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only."
+  ],
+  "params": {},
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.7315509873546274,
+    "note": "DSR uses the raw trial count as if trials were independent (conservative). PBO needs a configuration family; see `trader pbo`.",
+    "sharpe_variance_across_trials": 1.7652101293967511e-06,
+    "trials_including_this": 3
+  },
+  "strategy": "buy_and_hold",
+  "symbol": "SOLUSDT"
+}

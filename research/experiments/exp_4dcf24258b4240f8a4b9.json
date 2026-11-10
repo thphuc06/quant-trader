@@ -1,0 +1,194 @@
+{
+  "artefact": {
+    "calibration_status": "evaluated_ok",
+    "created_at": "2026-11-10T09:35:51Z",
+    "feature_params": {
+      "adx_period": 14,
+      "atr_period": 14,
+      "donchian_lookback": 96,
+      "ema_fast": 24,
+      "ema_slow": 168,
+      "rsi_period": 14,
+      "rv_long": 168,
+      "rv_short": 24,
+      "tsmom_lookback": 168,
+      "vol_regime_window": 2160,
+      "volume_lookback": 168
+    },
+    "features": [
+      "ema_spread",
+      "tsmom",
+      "adx",
+      "rsi",
+      "atr_pct",
+      "rv",
+      "rv_ratio",
+      "rv_pct",
+      "donchian_pos",
+      "rel_volume",
+      "taker_buy_ratio",
+      "vwap_dev"
+    ],
+    "interval": "1h",
+    "label": {
+      "horizon_bars": 24,
+      "k_down_atr": 2.0,
+      "k_up_atr": 2.0,
+      "type": "triple_barrier"
+    },
+    "model_name": "logreg_v1",
+    "model_version": "202611100935",
+    "out_of_sample_status": "evaluated_no_edge",
+    "symbol": "BTCUSDT",
+    "train_rows": 17520,
+    "trained_through": "2025-11-08T23:00:00Z"
+  },
+  "brier": 0.24777782260406742,
+  "brier_base_rate": 0.2464333020340355,
+  "calibration_status": "evaluated_ok",
+  "created_at": "2026-11-10T09:35:51Z",
+  "ece": 0.018616386336173883,
+  "experiment_id": "exp_4dcf24258b4240f8a4b9",
+  "folds": 7,
+  "gates_provisional": {
+    "beats_base_rate_every_fold": false,
+    "ece_within_limit": true
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "interval": "1h",
+  "kind": "ml_model",
+  "label": {
+    "horizon_bars": 24,
+    "k_down_atr": 2.0,
+    "k_up_atr": 2.0,
+    "type": "triple_barrier"
+  },
+  "log_loss": 0.6888158642577213,
+  "log_loss_base_rate": 0.6860013594180853,
+  "model": "logreg_v1",
+  "net_return_by_probability_bucket": [
+    {
+      "count": 1857,
+      "mean_net_return": -0.0010896080825909312,
+      "p_high": 0.4,
+      "p_low": 0.0
+    },
+    {
+      "count": 13037,
+      "mean_net_return": -0.002212335751990669,
+      "p_high": 0.5,
+      "p_low": 0.4
+    },
+    {
+      "count": 226,
+      "mean_net_return": -0.002444712779500445,
+      "p_high": 0.6,
+      "p_low": 0.5
+    },
+    {
+      "count": 0,
+      "mean_net_return": null,
+      "p_high": 1.0,
+      "p_low": 0.6
+    }
+  ],
+  "note_overlap": "Labels overlap by up to horizon bars, so the effective sample size is far below oos_samples.",
+  "oos_samples": 15120,
+  "out_of_sample_status": "evaluated_no_edge",
+  "per_fold": [
+    {
+      "brier": 0.25490960448263444,
+      "brier_base_rate": 0.2456315705788601,
+      "fold": 0,
+      "log_loss": 0.7039579738313008,
+      "log_loss_base_rate": 0.6843894015974804,
+      "test_start": "2023-12-04T22:00:00Z"
+    },
+    {
+      "brier": 0.24651182311873612,
+      "brier_base_rate": 0.245262147841644,
+      "fold": 1,
+      "log_loss": 0.6861623007590354,
+      "log_loss_base_rate": 0.683644189151788,
+      "test_start": "2024-03-03T22:00:00Z"
+    },
+    {
+      "brier": 0.2462016793528538,
+      "brier_base_rate": 0.24812728832760575,
+      "fold": 2,
+      "log_loss": 0.6854992919070134,
+      "log_loss_base_rate": 0.689416312593561,
+      "test_start": "2024-06-01T22:00:00Z"
+    },
+    {
+      "brier": 0.24785980716284295,
+      "brier_base_rate": 0.24804518647308815,
+      "fold": 3,
+      "log_loss": 0.6888672383228551,
+      "log_loss_base_rate": 0.689242944553118,
+      "test_start": "2024-08-30T22:00:00Z"
+    },
+    {
+      "brier": 0.24509992846072762,
+      "brier_base_rate": 0.24338047533864424,
+      "fold": 4,
+      "log_loss": 0.6833257666555802,
+      "log_loss_base_rate": 0.6798645670049952,
+      "test_start": "2024-11-28T22:00:00Z"
+    },
+    {
+      "brier": 0.24501280291649874,
+      "brier_base_rate": 0.24656789276702398,
+      "fold": 5,
+      "log_loss": 0.6830969234967277,
+      "log_loss_base_rate": 0.6862677238204805,
+      "test_start": "2025-02-26T22:00:00Z"
+    },
+    {
+      "brier": 0.24884911273417848,
+      "brier_base_rate": 0.24801855291138206,
+      "fold": 6,
+      "log_loss": 0.6908015548315366,
+      "log_loss_base_rate": 0.6891843772051736,
+      "test_start": "2025-05-27T22:00:00Z"
+    }
+  ],
+  "positive_rate_oos": 0.4388888888888889,
+  "pr_auc": 0.4289066100748739,
+  "reliability_table": [
+    {
+      "bin_high": 0.30000000000000004,
+      "bin_low": 0.2,
+      "count": 28,
+      "mean_predicted": 0.2820854132112865,
+      "observed_frequency": 0.5714285714285714
+    },
+    {
+      "bin_high": 0.4,
+      "bin_low": 0.30000000000000004,
+      "count": 1829,
+      "mean_predicted": 0.37408338657986984,
+      "observed_frequency": 0.44450519409513395
+    },
+    {
+      "bin_high": 0.5,
+      "bin_low": 0.4,
+      "count": 13037,
+      "mean_predicted": 0.4474918887656589,
+      "observed_frequency": 0.43821431310884407
+    },
+    {
+      "bin_high": 0.6000000000000001,
+      "bin_low": 0.5,
+      "count": 226,
+      "mean_predicted": 0.5204642176528866,
+      "observed_frequency": 0.415929203539823
+    }
+  ],
+  "roc_auc": 0.49200574765562316,
+  "rows": 34442,
+  "status": "ok",
+  "symbol": "BTCUSDT"
+}

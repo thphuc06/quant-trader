@@ -1,0 +1,91 @@
+{
+  "all_gates_passed": false,
+  "code_commit": "7f985f0",
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-10T09:34:54Z",
+  "data": {
+    "development_bars": 35029,
+    "first_bar": "2021-11-11T10:00:00Z",
+    "holdout_bars": 8769,
+    "holdout_start": "2025-11-10",
+    "last_bar": "2026-11-10T08:00:00Z"
+  },
+  "development": {
+    "annualized_volatility": 0.6214559228822939,
+    "avg_bars_held": null,
+    "avg_loss": null,
+    "avg_win": null,
+    "bars": 35029,
+    "cagr": 0.12152952171792841,
+    "calmar": 0.17002261394727203,
+    "expectancy_per_trade": null,
+    "exposure": 0.999971452225299,
+    "max_consecutive_losses": 0,
+    "max_drawdown": -0.7147844565877428,
+    "max_drawdown_duration_bars": 22379,
+    "net_total_return": 0.5819046106165571,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr_vs_zero": 0.8390611770068707,
+    "sharpe": 0.49546543549158945,
+    "sharpe_ci_annualized": [
+      -0.33857151861004403,
+      1.2746895685459527
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.005293724183106982,
+    "sortino": 0.6907317494713378,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 16,
+      "median": -0.003384282106894121,
+      "positive_share": 0.5,
+      "worst": -0.34303571201526484
+    },
+    "trades": 0,
+    "trades_per_year": 0.0,
+    "win_rate": null,
+    "worst_day": -0.19529262086513965,
+    "years": 4.0
+  },
+  "development_at_stressed_costs": {
+    "max_drawdown": -0.714784456587729,
+    "multiplier": 2.0,
+    "net_total_return": 0.579845457724188,
+    "sharpe": 0.49494132487591064
+  },
+  "experiment_id": "exp_e21415bdcc954471a7a8",
+  "gates_provisional": {
+    "dsr_at_least_min": true,
+    "enough_trades": false,
+    "positive_at_stressed_costs": true,
+    "sharpe_ci_above_zero": false
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "buy_and_hold earns a positive net return on BNBUSDT 1h",
+  "interval": "1h",
+  "kind": "backtest",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "Single symbol, fully invested when long; no portfolio effects.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only."
+  ],
+  "params": {},
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.7721788007025037,
+    "note": "DSR uses the raw trial count as if trials were independent (conservative). PBO needs a configuration family; see `trader pbo`.",
+    "sharpe_variance_across_trials": 1.5430391482395795e-06,
+    "trials_including_this": 4
+  },
+  "strategy": "buy_and_hold",
+  "symbol": "BNBUSDT"
+}

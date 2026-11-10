@@ -1,0 +1,95 @@
+{
+  "all_gates_passed": false,
+  "code_commit": "7f985f0",
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-10T09:35:21Z",
+  "data": {
+    "development_bars": 35029,
+    "first_bar": "2021-11-11T10:00:00Z",
+    "holdout_bars": 8769,
+    "holdout_start": "2025-11-10",
+    "last_bar": "2026-11-10T08:00:00Z"
+  },
+  "development": {
+    "annualized_volatility": 0.3161197135875429,
+    "avg_bars_held": 71.2063492063492,
+    "avg_loss": -0.027805659312543946,
+    "avg_win": 0.10838158385964676,
+    "bars": 35029,
+    "cagr": -0.025232788913917226,
+    "calmar": -0.05238911723541935,
+    "expectancy_per_trade": 0.0013773213672112,
+    "exposure": 0.25638756458934026,
+    "max_consecutive_losses": 10,
+    "max_drawdown": -0.4816418035930903,
+    "max_drawdown_duration_bars": 34801,
+    "net_total_return": -0.09714587710213018,
+    "payoff_ratio": 3.8978246349566925,
+    "profit_factor": 1.0630430822609158,
+    "psr_vs_zero": 0.5612750998342363,
+    "sharpe": 0.07710182704615992,
+    "sharpe_ci_annualized": [
+      -0.795762739952655,
+      0.9718399403650186
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.0008237826035049769,
+    "sortino": 0.1101542347417706,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 16,
+      "median": -0.03994548215935162,
+      "positive_share": 0.3125,
+      "worst": -0.24074596160935002
+    },
+    "trades": 126,
+    "trades_per_year": 31.509891803933883,
+    "win_rate": 0.21428571428571427,
+    "worst_day": -0.08896870810240753,
+    "years": 4.0
+  },
+  "development_at_stressed_costs": {
+    "max_drawdown": -0.5509273504059031,
+    "multiplier": 2.0,
+    "net_total_return": -0.3506198201376556,
+    "sharpe": -0.1816021542516314
+  },
+  "experiment_id": "exp_6882cb1430814cf0a477",
+  "gates_provisional": {
+    "dsr_at_least_min": false,
+    "enough_trades": true,
+    "positive_at_stressed_costs": false,
+    "sharpe_ci_above_zero": false
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "donchian_breakout_v1 earns a positive net return on ETHUSDT 1h",
+  "interval": "1h",
+  "kind": "backtest",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "Single symbol, fully invested when long; no portfolio effects.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only."
+  ],
+  "params": {
+    "atr_stop_mult": 3.0,
+    "entry_lookback": 96.0,
+    "exit_lookback": 48.0
+  },
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.22602265164276875,
+    "note": "DSR uses the raw trial count as if trials were independent (conservative). PBO needs a configuration family; see `trader pbo`.",
+    "sharpe_variance_across_trials": 9.452809948830576e-06,
+    "trials_including_this": 10
+  },
+  "strategy": "donchian_breakout_v1",
+  "symbol": "ETHUSDT"
+}
