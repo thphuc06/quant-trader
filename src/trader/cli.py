@@ -143,6 +143,17 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shadow_log(args: argparse.Namespace) -> int:
+    """Append forward shadow-log rows for every closed decision bar not yet logged. No LLM, no orders."""
+    from trader.shadow import run_shadow_log
+
+    desk = TradingDesk()
+    symbols = [desk._check_symbol(args.symbol)] if args.symbol else None
+    result = run_shadow_log(desk, symbols)
+    _print(result.as_dict())
+    return 0 if result.ok else 1
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     desk = TradingDesk()
     if args.unlock_holdout:
@@ -600,6 +611,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--intervals", default="1h,4h,1d")
     p.add_argument("--days", type=int, default=1825)
     p.set_defaults(fn=cmd_ingest)
+
+    p = sub.add_parser("shadow-log", help="append forward shadow-log rows for closed decision bars (schedule hourly)")
+    p.add_argument("--symbol")
+    p.set_defaults(fn=cmd_shadow_log)
 
     p = sub.add_parser("backtest", help="evaluate a strategy; every run is logged as a trial")
     p.add_argument("strategy")

@@ -76,3 +76,29 @@ with Haiku (trader role, PAPER, temporary data dir; about $0.05 per run) and wri
 - Supervise the first cycle step by step: entry → stop `PROTECTED` → `sync_positions` → exit via SELL intent.
 - Live stays locked: it needs `TRADING_MODE=LIVE`, `LIVE_TRADING_ENABLED=true`, live keys, policy `status: approved`
   and an unexpired `python -m trader live-unlock`.
+
+## 9. Forward shadow log (scheduled job)
+
+`python -m trader shadow-log` appends one row per closed 1h bar for each universe symbol: close, all registered
+features, rule regime, each baseline's target and validation status, data quality of the feature window, code commit
+and `logged_at`. It calls no LLM and places no orders. Rows live in the `shadow_log` table of the operational SQLite
+database under `data/`; the table is append-only and a re-run for the same bar adds nothing. A bar the exchange never
+published is written as `missing`, never filled. Claude reads it with the read-only tool
+`get_shadow_log(symbol, limit)` (max 200 rows).
+
+The first run logs only the latest closed bar (forward data, not a backfill). If the laptop sleeps, the next run
+catches up every bar since the last logged one; those rows show a large `lag_seconds_after_close`, so they can be told
+apart from on-time rows.
+
+**Register it yourself** (Claude does not create scheduled tasks). From PowerShell or cmd, hourly at 5 minutes past
+the hour, output appended to `data\shadow-log.out`:
+
+```
+schtasks /Create /TN "ClaudeTrader\ShadowLog" /SC HOURLY /ST 00:05 /F /TR "cmd /c cd /d C:\ClaudeTrader && .venv\Scripts\python.exe -m trader shadow-log >> data\shadow-log.out 2>&1"
+```
+
+- Check: `schtasks /Query /TN "ClaudeTrader\ShadowLog" /V /FO LIST` (`Last Result` 0 = all symbols ok, 1 = at least
+  one symbol failed; nothing is written for a failed symbol and the next run catches it up).
+- Run once now: `schtasks /Run /TN "ClaudeTrader\ShadowLog"`. Remove: `schtasks /Delete /TN "ClaudeTrader\ShadowLog" /F`.
+- The task runs only while you are logged on (the default), which needs no stored password. Adjust `C:\ClaudeTrader`
+  if the repo lives elsewhere.

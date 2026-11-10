@@ -37,7 +37,7 @@ from trader.quant.features import FEATURE_NAMES, FEATURE_REGISTRY, classify_regi
 from trader.quant.research import ExperimentRegistry, evaluate_strategy, holdout_start_ms
 from trader.quant.strategies import ACTIVE_STRATEGIES, STRATEGIES
 from trader.storage import CandleStore, Database
-from trader.timeutil import from_ms, iso, utc_now
+from trader.timeutil import from_ms, interval_ms, iso, to_ms, utc_now
 
 Envelope = dict[str, Any]
 
@@ -535,6 +535,47 @@ class TradingDesk:
             )
         return self._envelope(
             "get_experiment_results", {}, {"total_recorded": len(self.registry.records()), "latest": compact}
+        )
+
+    def shadow_log(self, symbol: str, limit: int = 48) -> Envelope:
+        """Read the forward shadow log (written by the scheduled ``trader shadow-log``). Pure read."""
+        from trader import shadow
+
+        symbol = self._check_symbol(symbol)
+        interval = self.app.decision_timeframe
+        limit = max(1, min(int(limit), shadow.MAX_READ_LIMIT))
+        args = {"symbol": symbol, "limit": limit}
+        info = shadow.summary(self.db, symbol, interval)
+        if info["rows"] == 0:
+            return self._envelope(
+                "get_shadow_log",
+                args,
+                {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "reason": "shadow log is empty; the operator schedules `python -m trader shadow-log` hourly",
+                },
+                status="unavailable",
+            )
+        rows = shadow.read_rows(self.db, symbol, interval, limit)
+        warnings = []
+        if info["missing_bars"]:
+            warnings.append(f"{info['missing_bars']} bar(s) recorded as missing; they were not filled")
+        last_close_ms = rows[-1]["close_time_ms"]
+        age_bars = (to_ms(utc_now()) - last_close_ms) / interval_ms(interval)
+        status = "ok"
+        if age_bars > 3:
+            status = "stale"
+            warnings.append(f"latest logged bar closed {age_bars:.1f} bars ago; the scheduled job may not be running")
+        data = {
+            "symbol": symbol,
+            "interval": interval,
+            "summary": info,
+            "rows": rows,
+            "note": "Mechanical log only: no LLM, no orders. Strategies remain not_validated unless a row says otherwise.",
+        }
+        return self._envelope(
+            "get_shadow_log", args, data, status=status, warnings=warnings, summary=f"{len(rows)} shadow rows"
         )
 
     def train_model(self, symbol: str, model_name: str) -> Envelope:

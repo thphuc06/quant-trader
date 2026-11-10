@@ -15,7 +15,7 @@ from tests.conftest import REPO, synthetic_candles
 from trader.config import RiskPolicy, Settings, TradingMode, load_app_config, load_risk_policy
 from trader.domain import DecisionReport, TradeIntentRequest, jsonable
 from trader.storage.candles import CandleStore, check_quality, drop_unclosed
-from trader.storage.db import Database
+from trader.storage.db import SCHEMA_VERSION, Database
 from trader.timeutil import iso, parse_iso, to_ms, utc_now
 
 # ----------------------------------------------------------------------------- config
@@ -145,7 +145,7 @@ def test_schema_initialises_and_is_idempotent(tmp_path: Path) -> None:
     db = Database(tmp_path / "t.sqlite")
     db.init_schema()
     db.init_schema()
-    assert db.schema_version() == 2
+    assert db.schema_version() == SCHEMA_VERSION
 
 
 def test_journal_is_append_only_and_tamper_evident(tmp_path: Path) -> None:
@@ -227,7 +227,7 @@ def test_schema_v1_database_is_upgraded_in_place(tmp_path: Path) -> None:
     db = Database(path)
     db.init_schema()
     db.init_schema()  # idempotent
-    assert db.schema_version() == 2
+    assert db.schema_version() == SCHEMA_VERSION
     row = db.query("SELECT * FROM positions")[0]
     assert row["quantity"] == "0.5" and row["protection"] == "UNKNOWN" and row["stop_client_order_id"] is None
 

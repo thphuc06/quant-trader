@@ -141,6 +141,14 @@ def get_experiment_results(experiment_id: str | None = None) -> dict[str, Any]:
     return _safe("get_experiment_results", lambda: desk().experiment_results(experiment_id))
 
 
+@mcp.tool(annotations=READ)
+def get_shadow_log(symbol: str, limit: int = 48) -> dict[str, Any]:
+    """Forward shadow log for a symbol on the decision timeframe (max 200 rows, oldest first): per closed bar the close,
+    features, rule regime, each baseline's target and validation status, data quality, code commit and logged_at.
+    Written hourly by a scheduled job without any LLM. Missing bars appear as bar_status=missing; never fill them."""
+    return _safe("get_shadow_log", lambda: desk().shadow_log(symbol, limit))
+
+
 # ----------------------------------------------------------------------------- web / knowledge (read-only)
 
 

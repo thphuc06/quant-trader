@@ -20,7 +20,8 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | Risk engine + execution: sizing phía server, intent → duyệt → re-validate → order → reconcile, kill switch, khóa live | Xong, có test (paper chạy end-to-end với giá thật) |
 | Bảo vệ vị thế: mỗi vị thế có trạng thái `PROTECTED/UNPROTECTED/UNKNOWN`; mất stop → tự bật kill switch, chặn lệnh vào mới, `protect_position` để đặt lại | Xong, test với broker giả lập (stop bị reject, unknown, khớp từng phần, race khi thoát lệnh) |
 | News/web: provider Tavily/Brave (tùy chọn), fetch chống SSRF, lưu point-in-time | Xong, có test |
-| MCP server `trading`: 29 tools, 8 resources, 4 prompts; khởi động qua `scripts/run_mcp.py` (tự tìm `.venv`) | Xong, có test (kể cả test spawn server qua stdio thật) |
+| Forward shadow log: `trader shadow-log` ghi mỗi nến 1h đã đóng (features, regime, target của baseline, data quality, commit), bảng append-only, nến thiếu ghi là `missing`; tool chỉ đọc `get_shadow_log` | Xong, có test; **cần operator đăng ký lịch chạy mỗi giờ** ([docs §9](docs/operating-the-trading-desk.md)) |
+| MCP server `trading`: 30 tools, 8 resources, 4 prompts; khởi động qua `scripts/run_mcp.py` (tự tìm `.venv`) | Xong, có test (kể cả test spawn server qua stdio thật) |
 | Knowledge base ([knowledge/](knowledge/)) | Bộ tài liệu khởi đầu, đều ở trạng thái `candidate` |
 | Claude Code harness | `CLAUDE.md`; 4 skills kèm template/reference; 2 subagents chỉ đọc; 3 hook (`SessionStart`, `PreToolUse`, `PostToolUse`); permission least privilege; `state/` để bàn giao giữa các session; [docs/operating-the-trading-desk.md](docs/operating-the-trading-desk.md) |
 | Harness eval | 6 kịch bản chạy bằng session `claude -p` mới với Haiku, chấm bằng code. Baseline 5/6 → sau khi sửa skill: 5 kịch bản đạt mọi lần, S2 đạt 3/3 lần cuối. Xem [reports/harness-eval/](reports/harness-eval/) |
@@ -152,6 +153,7 @@ Chi tiết (role, các tool cần duyệt, quy trình approve, xử lý sự c�
 
 ```bash
 python -m trader status                      # trạng thái hệ thống (JSON)
+python -m trader shadow-log                  # ghi shadow log các nến 1h đã đóng (lên lịch mỗi giờ, docs §9)
 python -m trader ingest --intervals 1h       # tải lịch sử nến
 python -m trader backtest donchian_breakout_v1 --symbol BTCUSDT   # mỗi lần chạy được ghi lại như 1 trial
 python -m trader research-volatility-overlay # challenger OOS trên dữ liệu đã ingest; không tải thay dữ liệu

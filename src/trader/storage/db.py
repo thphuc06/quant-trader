@@ -17,7 +17,7 @@ from typing import Any
 from trader.domain import jsonable
 from trader.timeutil import iso, utc_now
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3  # v3: shadow_log table (created by CREATE TABLE IF NOT EXISTS)
 
 # Columns added after v1. init_schema() adds them to existing databases in place.
 MIGRATIONS: list[tuple[int, str, str, str]] = [
@@ -171,6 +171,31 @@ CREATE TABLE IF NOT EXISTS news_items (
     observed_at TEXT NOT NULL,
     ingested_at TEXT NOT NULL
 );
+
+-- Forward shadow log: one row per closed decision bar, written by `trader shadow-log`. Append-only.
+-- A second insert for the same bar is silently ignored (also defeats INSERT OR REPLACE, which would
+-- otherwise delete the old row without firing the delete trigger).
+CREATE TABLE IF NOT EXISTS shadow_log (
+    symbol TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    open_time_ms INTEGER NOT NULL,
+    close_time_ms INTEGER NOT NULL,
+    bar_status TEXT NOT NULL CHECK (bar_status IN ('closed', 'missing')),
+    logged_at TEXT NOT NULL,
+    code_commit TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (symbol, interval, open_time_ms)
+);
+CREATE TRIGGER IF NOT EXISTS shadow_log_insert_once BEFORE INSERT ON shadow_log
+WHEN EXISTS (
+    SELECT 1 FROM shadow_log
+    WHERE symbol = NEW.symbol AND interval = NEW.interval AND open_time_ms = NEW.open_time_ms
+)
+BEGIN SELECT RAISE(IGNORE); END;
+CREATE TRIGGER IF NOT EXISTS shadow_log_no_update BEFORE UPDATE ON shadow_log
+BEGIN SELECT RAISE(ABORT, 'shadow_log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS shadow_log_no_delete BEFORE DELETE ON shadow_log
+BEGIN SELECT RAISE(ABORT, 'shadow_log is append-only'); END;
 
 CREATE TABLE IF NOT EXISTS experiments (
     experiment_id TEXT PRIMARY KEY,
