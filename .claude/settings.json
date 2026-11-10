@@ -23,6 +23,9 @@
       "Read(.env.*)",
       "Read(**/.env)",
       "Read(**/.env.*)",
+      "Read(data/keys/**)",
+      "Read(**/*.pem)",
+      "Bash(python -m trader keygen *)",
       "Bash(python -m trader approve *)",
       "Bash(python -m trader live-unlock *)",
       "Bash(python -m trader kill-switch release *)"

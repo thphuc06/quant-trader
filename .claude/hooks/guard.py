@@ -30,6 +30,7 @@ HUMAN_ONLY = [
     (r"record_cli_approval|release_kill_switch|_insert_approval", "calling approval internals directly"),
     (r"live_unlock\.json", "touching the live unlock file"),
     (r"LIVE_TRADING_ENABLED|TRADING_MODE\s*=\s*['\"]?LIVE", "changing the trading mode to live"),
+    (r"\btrader(\.cli)?\s+keygen\b", "generating exchange API keys"),
 ]
 # Things no session should do from a shell.
 FORBIDDEN = [
@@ -40,6 +41,7 @@ FORBIDDEN = [
     ),
     (r"trader\.sqlite", "accessing the operational database directly"),
     (r"X-MBX-APIKEY|API_SECRET|api_secret", "handling exchange credentials"),
+    (r"\.pem\b|data[/\\]+keys\b|PRIVATE_KEY_FILE", "touching exchange private keys"),
 ]
 # Shell or inline-code operations that write. Heuristic by design: false negatives are caught by the backend,
 # false positives block legitimate reads, so stream merges (2>&1, >&2) and null sinks are not writes.

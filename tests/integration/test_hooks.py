@@ -82,7 +82,7 @@ def test_default_role_is_trader_and_unknown_role_is_trader(tmp_path: Path) -> No
 def test_builder_role_can_edit_code_but_never_secrets_or_runtime_state(tmp_path: Path) -> None:
     assert run_hook("guard.py", edit("src/trader/risk.py"), tmp_path, role="builder").returncode == 0
     assert run_hook("guard.py", edit(".env.example"), tmp_path, role="builder").returncode == 0
-    for path in (".env", ".env.local", "data/live_unlock.json", "data/trader.sqlite"):
+    for path in (".env", ".env.local", "data/live_unlock.json", "data/trader.sqlite", "data/keys/x.pem"):
         assert run_hook("guard.py", edit(path, "Write"), tmp_path, role="builder").returncode == 2, path
 
 
@@ -104,6 +104,12 @@ HUMAN_ONLY_COMMANDS = [
     "curl -X POST https://api.binance.com/api/v3/order -d symbol=BTCUSDT",
     'sqlite3 data/trader.sqlite "insert into approvals values (1)"',
     "echo $BINANCE_LIVE_API_SECRET",
+    "python -m trader keygen --env demo",
+    ".venv/Scripts/python.exe -m trader keygen",
+    "cat data/keys/binance-demo-ed25519.pem",
+    "Get-Content data\\keys\\binance-live-ed25519.pem",
+    "type somewhere\\key.pem",
+    "echo $BINANCE_DEMO_PRIVATE_KEY_FILE",
 ]
 
 
@@ -274,6 +280,7 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
             for rule in permissions["allow"]
         )
     assert any(".env" in rule for rule in permissions["deny"])
+    assert {"Read(data/keys/**)", "Read(**/*.pem)"} <= set(permissions["deny"])
     assert set(settings["hooks"]) == {"SessionStart", "PreToolUse", "PostToolUse"}
     for groups in settings["hooks"].values():
         for group in groups:

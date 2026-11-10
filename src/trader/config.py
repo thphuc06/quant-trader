@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -21,6 +22,23 @@ class TradingMode(StrEnum):
     PAPER = "PAPER"
     BINANCE_DEMO = "BINANCE_DEMO"
     LIVE = "LIVE"
+
+
+@dataclass(frozen=True)
+class BinanceCredentials:
+    """One environment's API key plus exactly one signing method.
+
+    ``hmac_secret``: Binance "system generated" key. ``private_key_file``: a self-generated Ed25519 key in PEM
+    (only its public half is registered with Binance; the private half never leaves this machine).
+    """
+
+    api_key: SecretStr
+    hmac_secret: SecretStr | None = None
+    private_key_file: Path | None = None
+
+    @property
+    def method(self) -> str:
+        return "ed25519" if self.private_key_file is not None else "hmac"
 
 
 def project_root() -> Path:
@@ -48,6 +66,9 @@ class Settings(BaseSettings):
     binance_demo_api_secret: SecretStr | None = None
     binance_live_api_key: SecretStr | None = None
     binance_live_api_secret: SecretStr | None = None
+    # Self-generated Ed25519 keys: path to the PEM private key (relative paths are resolved from the repo root).
+    binance_demo_private_key_file: Path | None = None
+    binance_live_private_key_file: Path | None = None
 
     tavily_api_key: SecretStr | None = None
     brave_api_key: SecretStr | None = None
@@ -57,6 +78,8 @@ class Settings(BaseSettings):
         "binance_demo_api_secret",
         "binance_live_api_key",
         "binance_live_api_secret",
+        "binance_demo_private_key_file",
+        "binance_live_private_key_file",
         "tavily_api_key",
         "brave_api_key",
         mode="before",
@@ -71,17 +94,34 @@ class Settings(BaseSettings):
         base = self.trader_data_dir or ((root or project_root()) / "data")
         return Path(base)
 
-    def credentials_for(self, mode: TradingMode) -> tuple[SecretStr, SecretStr] | None:
-        """Credentials for exactly this mode. Never falls back to another environment."""
+    def _raw_credentials(self, mode: TradingMode) -> tuple[SecretStr | None, SecretStr | None, Path | None]:
         if mode is TradingMode.BINANCE_DEMO:
-            key, secret = self.binance_demo_api_key, self.binance_demo_api_secret
-        elif mode is TradingMode.LIVE:
-            key, secret = self.binance_live_api_key, self.binance_live_api_secret
-        else:
+            return self.binance_demo_api_key, self.binance_demo_api_secret, self.binance_demo_private_key_file
+        if mode is TradingMode.LIVE:
+            return self.binance_live_api_key, self.binance_live_api_secret, self.binance_live_private_key_file
+        return None, None, None
+
+    def credentials_problem(self, mode: TradingMode) -> str | None:
+        """Why this mode has no usable credentials (None when they are complete). Never reveals values."""
+        if mode is TradingMode.PAPER:
+            return "PAPER mode uses no exchange credentials"
+        key, secret, key_file = self._raw_credentials(mode)
+        prefix = f"BINANCE_{'DEMO' if mode is TradingMode.BINANCE_DEMO else 'LIVE'}"
+        if key is None:
+            return f"{prefix}_API_KEY is not set"
+        if secret is not None and key_file is not None:
+            return f"both an HMAC secret and {prefix}_PRIVATE_KEY_FILE are set; keep exactly one"
+        if secret is None and key_file is None:
+            return f"set either the HMAC secret or {prefix}_PRIVATE_KEY_FILE (Ed25519)"
+        return None
+
+    def credentials_for(self, mode: TradingMode) -> BinanceCredentials | None:
+        """Credentials for exactly this mode. Never falls back to another environment; ambiguity is an error."""
+        if self.credentials_problem(mode) is not None:
             return None
-        if key is None or secret is None:
-            return None
-        return key, secret
+        key, secret, key_file = self._raw_credentials(mode)
+        assert key is not None
+        return BinanceCredentials(api_key=key, hmac_secret=secret, private_key_file=key_file)
 
 
 def load_settings(root: Path | None = None) -> Settings:

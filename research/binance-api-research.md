@@ -47,6 +47,10 @@ Deliberately **not** implemented: withdraw, transfer, margin, sub-account, lever
 - HMAC-SHA256 over the query string, hex digest appended as `signature`; key in `X-MBX-APIKEY`.
 - `timestamp` in ms; `recvWindow` 5000 (doc default; max 60000). The client measures server-time offset at start and refuses to sign if local drift exceeds 1 s after correction.
 - Docs recommend Ed25519 keys. HMAC is implemented first because Demo keys are HMAC by default; Ed25519 is a listed follow-up.
+- 2026-11-11: Ed25519 implemented (`Ed25519Signer`): the same query string is signed with the private key, the
+  signature is base64-encoded and sent percent-encoded (Spot request-security docs; Binance.US docs state the
+  percent-encoding explicitly for REST). Verified only with locally generated keys against mocked HTTP. **Not yet
+  verified:** whether the Demo portal offers the "self-generated" key type, and a real signed call.
 
 ## Rate limits and failure handling
 

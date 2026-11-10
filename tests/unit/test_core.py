@@ -39,6 +39,25 @@ def test_credentials_never_fall_back_between_environments() -> None:
     assert settings.credentials_for(TradingMode.BINANCE_DEMO) is not None
 
 
+def test_credentials_need_exactly_one_signing_method(tmp_path: Path) -> None:
+    hmac_only = Settings(binance_demo_api_key=SecretStr("k"), binance_demo_api_secret=SecretStr("s"))
+    creds = hmac_only.credentials_for(TradingMode.BINANCE_DEMO)
+    assert creds is not None and creds.method == "hmac"
+    ed = Settings(binance_demo_api_key=SecretStr("k"), binance_demo_private_key_file=tmp_path / "k.pem")
+    creds = ed.credentials_for(TradingMode.BINANCE_DEMO)
+    assert creds is not None and creds.method == "ed25519" and creds.hmac_secret is None
+    both = Settings(
+        binance_demo_api_key=SecretStr("k"),
+        binance_demo_api_secret=SecretStr("s"),
+        binance_demo_private_key_file=tmp_path / "k.pem",
+    )
+    assert both.credentials_for(TradingMode.BINANCE_DEMO) is None
+    assert "exactly one" in (both.credentials_problem(TradingMode.BINANCE_DEMO) or "")
+    neither = Settings(binance_demo_api_key=SecretStr("k"), binance_demo_private_key_file="  ")
+    assert "either" in (neither.credentials_problem(TradingMode.BINANCE_DEMO) or "")
+    assert ed.credentials_for(TradingMode.LIVE) is None  # never falls back across environments
+
+
 def test_secrets_are_not_printed() -> None:
     settings = Settings(binance_live_api_secret=SecretStr("super-secret-value"))
     assert "super-secret-value" not in repr(settings)

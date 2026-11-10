@@ -9,6 +9,7 @@ Endpoint facts are documented in research/binance-api-research.md.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import random
@@ -16,10 +17,13 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import SecretStr
 
 from trader.config import HttpConfig
@@ -198,14 +202,54 @@ class BinancePublicClient:
         return self._futures.request("GET", "/fapi/v1/openInterest", {"symbol": symbol.upper()}, retry=True)
 
 
+class HmacSigner:
+    """Binance "system generated" keys: hex HMAC-SHA256 of the query string."""
+
+    method = "hmac"
+
+    def __init__(self, secret: SecretStr) -> None:
+        self._secret = secret
+
+    def sign(self, payload: str) -> str:
+        return hmac.new(
+            self._secret.get_secret_value().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+
+
+class Ed25519Signer:
+    """Self-generated Ed25519 keys: base64 Ed25519 signature of the query string.
+
+    The signature is percent-encoded when the request is sent (httpx encodes '+', '/' and '='), as the REST
+    docs require. The private key is loaded from a PEM file and never logged or returned.
+    """
+
+    method = "ed25519"
+
+    def __init__(self, private_key: Ed25519PrivateKey) -> None:
+        self._key = private_key
+
+    @classmethod
+    def from_pem_file(cls, path: Path) -> Ed25519Signer:
+        key = serialization.load_pem_private_key(Path(path).read_bytes(), password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError(f"{path.name} is not an Ed25519 private key")
+        return cls(key)
+
+    def sign(self, payload: str) -> str:
+        return base64.b64encode(self._key.sign(payload.encode("ascii"))).decode("ascii")
+
+
+Signer = HmacSigner | Ed25519Signer
+
+
 class BinanceTradingClient:
-    """Signed Spot endpoints for one environment (Demo or Live). HMAC-SHA256 signing."""
+    """Signed Spot endpoints for one environment (Demo or Live). HMAC-SHA256 or Ed25519 signing."""
 
     def __init__(
         self,
         base_url: str,
         api_key: SecretStr,
-        api_secret: SecretStr,
+        signer: Signer | SecretStr,
         config: HttpConfig,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -213,7 +257,7 @@ class BinanceTradingClient:
     ) -> None:
         self._http = _Http(base_url, config, transport, sleep)
         self._key = api_key
-        self._secret = api_secret
+        self._signer: Signer = HmacSigner(signer) if isinstance(signer, SecretStr) else signer
         self._config = config
         self._now_ms = now_ms
         self._time_offset_ms: int | None = None
@@ -234,11 +278,7 @@ class BinanceTradingClient:
         payload = dict(params)
         payload["recvWindow"] = self._config.recv_window_ms
         payload["timestamp"] = self._now_ms() + self._time_offset_ms
-        query = urlencode(payload)
-        signature = hmac.new(
-            self._secret.get_secret_value().encode("utf-8"), query.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-        payload["signature"] = signature
+        payload["signature"] = self._signer.sign(urlencode(payload))
         return payload
 
     def _headers(self) -> dict[str, str]:

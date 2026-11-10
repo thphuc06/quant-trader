@@ -461,6 +461,40 @@ def demo_desk(root: Path, source: FakeSource, outcomes: list):
     return desk, broker
 
 
+def test_demo_broker_signs_with_a_relative_ed25519_key_file_and_fails_closed_on_a_bad_one(
+    repo_copy: Path, source: FakeSource
+) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from trader.exchanges.binance.client import Ed25519Signer
+    from trader.execution import ExecutionError
+
+    keys = repo_copy / "data" / "keys"
+    keys.mkdir(parents=True)
+    (keys / "demo.pem").write_bytes(
+        Ed25519PrivateKey.generate().private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        )
+    )
+    desk = make_desk(
+        repo_copy, source, TradingMode.BINANCE_DEMO,
+        binance_demo_api_key=SecretStr("k"), binance_demo_private_key_file=Path("data/keys/demo.pem"),
+    )  # fmt: skip
+    assert desk.execution.mode_permitted()[0]
+    broker = desk.execution.broker()
+    assert isinstance(broker.client._signer, Ed25519Signer)  # type: ignore[attr-defined]
+
+    (keys / "bad.pem").write_text("not a key", encoding="utf-8")
+    bad = make_desk(
+        repo_copy, source, TradingMode.BINANCE_DEMO,
+        binance_demo_api_key=SecretStr("k"), binance_demo_private_key_file=Path("data/keys/bad.pem"),
+    )  # fmt: skip
+    with pytest.raises(ExecutionError, match="Ed25519 private key file") as excinfo:
+        bad.execution.broker()
+    assert "not a key" not in str(excinfo.value)
+
+
 def test_demo_requires_cli_approval_which_is_single_use_and_parameter_bound(
     repo_copy: Path, source: FakeSource
 ) -> None:

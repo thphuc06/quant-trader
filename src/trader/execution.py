@@ -36,7 +36,10 @@ from trader.exchanges.binance.client import (
     BinanceAPIError,
     BinanceTradingClient,
     CancelReplaceResult,
+    Ed25519Signer,
+    HmacSigner,
     OrderStateUnknown,
+    Signer,
 )
 from trader.exchanges.binance.filters import round_price, round_quantity
 from trader.marketdata import MarketData
@@ -378,8 +381,9 @@ class ExecutionService:
             reasons.append("TRADING_MODE is not LIVE")
         if not self.settings.live_trading_enabled:
             reasons.append("LIVE_TRADING_ENABLED is false")
-        if self.settings.credentials_for(TradingMode.LIVE) is None:
-            reasons.append("live API credentials are not configured")
+        live_problem = self.settings.credentials_problem(TradingMode.LIVE)
+        if live_problem is not None:
+            reasons.append(f"live API credentials are not configured: {live_problem}")
         try:
             loaded = policy or self.policy()
             if loaded.policy.status != "approved":
@@ -399,8 +403,9 @@ class ExecutionService:
         if self.mode is TradingMode.PAPER:
             return True, "PAPER: simulated execution only"
         if self.mode is TradingMode.BINANCE_DEMO:
-            if self.settings.credentials_for(TradingMode.BINANCE_DEMO) is None:
-                return False, "BINANCE_DEMO credentials are not configured"
+            problem = self.settings.credentials_problem(TradingMode.BINANCE_DEMO)
+            if problem is not None:
+                return False, f"BINANCE_DEMO credentials are not configured: {problem}"
             return True, "BINANCE_DEMO: Binance Demo Mode, no real funds"
         ok, reasons = self.live_gate(policy)
         return (True, "LIVE unlocked") if ok else (False, "live_disabled: " + "; ".join(reasons))
@@ -423,8 +428,20 @@ class ExecutionService:
             raise ExecutionError(why)
         credentials = self.settings.credentials_for(self.mode)
         assert credentials is not None
+        signer: Signer
+        if credentials.private_key_file is not None:
+            key_file = credentials.private_key_file
+            if not key_file.is_absolute():
+                key_file = self.root / key_file
+            try:
+                signer = Ed25519Signer.from_pem_file(key_file)
+            except (OSError, ValueError) as exc:  # message names the file only, never its content
+                raise ExecutionError(f"cannot load the Ed25519 private key file: {type(exc).__name__}") from exc
+        else:
+            assert credentials.hmac_secret is not None
+            signer = HmacSigner(credentials.hmac_secret)
         client = BinanceTradingClient(
-            self.app.endpoints.trading_rest(self.mode), credentials[0], credentials[1], self.app.http
+            self.app.endpoints.trading_rest(self.mode), credentials.api_key, signer, self.app.http
         )
         self._broker = BinanceBroker(client)
         return self._broker

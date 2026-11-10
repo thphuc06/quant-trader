@@ -73,6 +73,15 @@ with Haiku (trader role, PAPER, temporary data dir; about $0.05 per run) and wri
 ## 8. Before Binance Demo
 
 - `python -m trader doctor --network` passes; Demo keys in `.env` (spot trading only, no withdrawals).
+- Key type: either a Binance "system generated" HMAC key (`BINANCE_DEMO_API_KEY` + its secret) **or** a
+  self-generated Ed25519 key (Binance's recommended type, and the fallback when the portal does not show the HMAC
+  secret). For Ed25519, in your own terminal:
+  1. `python -m trader keygen --env demo` writes the private key to `data/keys/` (git-ignored; Claude is blocked
+     from reading it) and prints the **public** key.
+  2. In Binance (Demo) API Management choose *Self-generated*, paste the public key, and copy the API key it shows.
+  3. In `.env`: `BINANCE_DEMO_API_KEY=<that key>`, `BINANCE_DEMO_PRIVATE_KEY_FILE=data/keys/binance-demo-ed25519.pem`,
+     and no HMAC secret line (both at once is refused as ambiguous).
+  Use `--env live` and the `BINANCE_LIVE_*` names for a separate live key; never reuse a demo key.
 - Supervise the first cycle step by step: entry → stop `PROTECTED` → `sync_positions` → exit via SELL intent.
 - Live stays locked: it needs `TRADING_MODE=LIVE`, `LIVE_TRADING_ENABLED=true`, live keys, policy `status: approved`
   and an unexpired `python -m trader live-unlock`.

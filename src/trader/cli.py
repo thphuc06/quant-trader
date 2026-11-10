@@ -633,6 +633,44 @@ def cmd_backup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_keygen(args: argparse.Namespace) -> int:
+    """HUMAN ONLY: create an Ed25519 key pair for Binance "self-generated" API keys.
+
+    The private key stays in data/keys/ (git-ignored, never readable by Claude); only the public key is shown,
+    to be pasted into Binance API Management. Existing files are never overwritten.
+    """
+    require_human("keygen")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    env = args.env
+    keys_dir = TradingDesk().data_dir / "keys"
+    private_path = keys_dir / f"binance-{env}-ed25519.pem"
+    public_path = keys_dir / f"binance-{env}-ed25519.pub.pem"
+    if private_path.exists() or public_path.exists():
+        raise SystemExit(f"{private_path.name} already exists; delete it yourself first if you really want a new key.")
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    key = Ed25519PrivateKey.generate()
+    private_pem = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+    public_pem = key.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    fd = os.open(private_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(private_pem)
+    public_path.write_bytes(public_pem)
+    upper = env.upper()
+    print(f"Private key written to {private_path} (never share it, never paste it anywhere).\n")
+    print("1. In Binance API Management choose 'Self-generated' (Ed25519) and paste this PUBLIC key:\n")
+    print(public_pem.decode("ascii"))
+    print("2. Put the API key Binance shows you into .env, together with:\n")
+    print(f"   BINANCE_{upper}_PRIVATE_KEY_FILE=data/keys/{private_path.name}")
+    print(f"   (and leave the BINANCE_{upper} HMAC secret line empty or remove it)")
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     from trader.mcp_server import main as run_server
 
@@ -740,6 +778,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("verify-journal", help="recompute the journal hash chain").set_defaults(
         fn=cmd_verify_journal
     )
+
+    p = sub.add_parser("keygen", help="HUMAN ONLY: create an Ed25519 key pair for a self-generated Binance API key")
+    p.add_argument("--env", choices=["demo", "live"], default="demo")
+    p.set_defaults(fn=cmd_keygen)
 
     p = sub.add_parser("backup", help="copy the SQLite database")
     p.add_argument("--to")

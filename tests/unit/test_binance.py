@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import inspect
 from decimal import Decimal
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, quote, urlencode
 
 import httpx
 import pytest
@@ -165,6 +166,53 @@ def test_signed_request_has_valid_hmac_and_key_header() -> None:
     assert dict(params)["timestamp"] == "1700000000500"  # local clock corrected by server offset
     assert dict(params)["recvWindow"] == "5000"
     assert "secret-xyz" not in str(request.url)
+
+
+def test_ed25519_signature_is_base64_over_the_exact_query_and_verifies(tmp_path) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    pem = tmp_path / "k.pem"
+    pem.write_bytes(
+        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    )
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/time":
+            return httpx.Response(200, json={"serverTime": 1_700_000_000_500})
+        seen.append(request)
+        return httpx.Response(200, json={"balances": []})
+
+    client = BinanceTradingClient(
+        "https://demo.test", SecretStr("key-abc"), client_module.Ed25519Signer.from_pem_file(pem), CFG,
+        transport=httpx.MockTransport(handler), sleep=lambda _s: None, now_ms=lambda: 1_700_000_000_000,
+    )  # fmt: skip
+    client.account()
+    request = seen[0]
+    raw_query = request.url.query.decode()
+    params = parse_qsl(raw_query)
+    signature = dict(params)["signature"]
+    unsigned = urlencode([(k, v) for k, v in params if k != "signature"])
+    key.public_key().verify(base64.b64decode(signature), unsigned.encode("ascii"))  # raises if invalid
+    # Binance REST requires the base64 signature percent-encoded: '+', '/' and '=' never appear raw
+    assert raw_query.endswith("signature=" + quote(signature, safe=""))
+    assert request.headers["X-MBX-APIKEY"] == "key-abc"
+
+
+def test_ed25519_loader_rejects_other_key_types(tmp_path) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    pem = tmp_path / "ec.pem"
+    pem.write_bytes(
+        ec.generate_private_key(ec.SECP256R1()).private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        )
+    )
+    with pytest.raises(ValueError, match="not an Ed25519"):
+        client_module.Ed25519Signer.from_pem_file(pem)
 
 
 def _order_handler(order_response: httpx.Response | Exception, calls: list[str]):
