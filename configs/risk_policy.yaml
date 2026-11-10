@@ -1,0 +1,39 @@
+# Backend-enforced risk policy. Explained in architecture/trading-risk-policy-draft.md.
+# ALL VALUES ARE PROVISIONAL. LIVE mode refuses to run while status != approved.
+# Claude must never edit this file. Changes go through a human-reviewed git commit.
+version: "0.1.0"
+status: provisional          # provisional | approved
+
+allowed_instruments: [spot]
+allowed_symbols: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT]
+allowed_order_types: [MARKET, LIMIT]
+allowed_open_sides: [BUY]    # SELL may only reduce an existing position
+max_leverage: "1"
+
+# percentages of account equity
+max_risk_per_trade_pct: "0.5"
+max_position_notional_pct: "20"
+max_total_exposure_pct: "50"
+max_open_positions: 2
+daily_loss_limit_pct: "2"
+weekly_loss_limit_pct: "5"
+max_drawdown_kill_pct: "10"
+
+require_stop_loss: true
+min_stop_distance_pct: "0.3"
+max_stop_distance_pct: "10"
+min_reward_risk: null         # not enforced: no validated model supports a number
+
+max_spread_bps: "10"
+max_expected_slippage_bps: "15"
+min_24h_quote_volume: "50000000"
+max_quote_age_seconds: 15
+max_candle_staleness_bars: 2
+
+cooldown_after_loss_minutes: 60
+intent_ttl_minutes: 30
+approval_ttl_minutes: 10
+live_unlock_ttl_minutes: 240
+
+# which modes need the out-of-band CLI approval (python -m trader approve)
+cli_approval_required_modes: [BINANCE_DEMO, LIVE]

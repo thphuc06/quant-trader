@@ -1,0 +1,108 @@
+# Application configuration. No secrets here.
+# Strategy/feature parameters below were chosen a priori (round numbers in hours/days), NOT tuned on data.
+version: "0.1.0"
+
+universe:
+  quote_asset: USDT
+  symbols: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT]
+
+timeframes:
+  decision: "1h"
+  context: ["4h", "1d"]
+
+# Base URLs verified against official docs on 2026-11-10 (research/binance-api-research.md).
+endpoints:
+  market_data_rest: "https://data-api.binance.vision"
+  market_data_ws: "wss://stream.binance.com:9443"
+  futures_public_rest: "https://fapi.binance.com"
+  binance_demo_rest: "https://demo-api.binance.com"
+  live_rest: "https://api.binance.com"
+
+http:
+  timeout_seconds: 10
+  max_retries: 3
+  recv_window_ms: 5000
+  # stay well below the per-IP weight limit; the real limit is read from exchangeInfo when needed
+  weight_soft_limit_1m: 3000
+
+# Provisional cost assumptions for backtests (bps per side).
+costs:
+  fee_bps: 10
+  half_spread_bps: 1
+  slippage_bps: 2
+
+paper:
+  starting_balance_usdt: "10000"
+  fee_bps: 10
+  slippage_bps: 2
+
+features:
+  ema_fast: 24
+  ema_slow: 168
+  tsmom_lookback: 168
+  atr_period: 14
+  adx_period: 14
+  rsi_period: 14
+  rv_short: 24
+  rv_long: 168
+  donchian_lookback: 96
+  volume_lookback: 168
+  vol_regime_window: 2160   # 90 days of 1h bars
+
+# Context timeframes use their own bar counts (same idea, longer clock).
+features_by_timeframe:
+  "4h": {ema_fast: 30, ema_slow: 180, tsmom_lookback: 180, rv_short: 42, rv_long: 180, donchian_lookback: 120, volume_lookback: 180, vol_regime_window: 1080}
+  "1d": {ema_fast: 20, ema_slow: 100, tsmom_lookback: 90, rv_short: 20, rv_long: 100, donchian_lookback: 55, volume_lookback: 60, vol_regime_window: 365}
+
+min_bars:
+  "1h": 2400
+  "4h": 1300
+  "1d": 500
+
+strategies:
+  tsmom_trend_v1:
+    ema_fast: 24
+    ema_slow: 168
+    mom_lookback: 168
+    atr_stop_mult: 3.0
+  donchian_breakout_v1:
+    entry_lookback: 96
+    exit_lookback: 48
+    atr_stop_mult: 3.0
+
+backtest:
+  # Fixed date, not "last N days": a moving boundary would leak old holdout data into development.
+  # Everything at or after this UTC date is the locked holdout (needs --unlock-holdout, which is logged).
+  holdout_start: "2025-11-10"
+  history_days: 1825
+  walk_forward_test_days: 90
+
+# Provisional acceptance gates (research/ml-and-validation.md section 6).
+validation:
+  min_oos_trades: 100
+  bootstrap_ci: 0.90
+  min_dsr: 0.5
+  cost_stress_multiplier: 2.0
+  max_ece: 0.05
+
+ml:
+  use_for_decisions: false
+  horizon_bars: 24
+  barrier_up_atr: 2.0
+  barrier_down_atr: 2.0
+  train_days: 730
+  test_days: 90
+
+research_budget:
+  max_tool_calls_per_run: 40
+  max_web_searches_per_run: 8
+  max_pages_fetched_per_event: 5
+  max_agent_depth: 1
+  max_retries: 2
+  analysis_time_budget_minutes: 20
+
+news:
+  max_results: 10
+  fetch_timeout_seconds: 10
+  fetch_max_bytes: 1000000
+  fetch_max_chars: 8000
