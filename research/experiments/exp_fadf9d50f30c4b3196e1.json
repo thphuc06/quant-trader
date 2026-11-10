@@ -1,0 +1,465 @@
+{
+  "all_gates_passed": false,
+  "code_commit": "b9d0497",
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-10T17:23:34Z",
+  "data": {
+    "aggregation": {
+      "BNBUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "status": "no_native_daily_klines"
+        }
+      },
+      "BTCUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "days_compared": 136,
+          "max_relative_diff": 0.0,
+          "status": "ok"
+        }
+      },
+      "ETHUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "days_compared": 136,
+          "max_relative_diff": 0.0,
+          "status": "ok"
+        }
+      },
+      "SOLUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "status": "no_native_daily_klines"
+        }
+      }
+    },
+    "data_quality": {
+      "BNBUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "BNBUSDT"
+      },
+      "BTCUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "BTCUSDT"
+      },
+      "ETHUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "ETHUSDT"
+      },
+      "SOLUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "SOLUSDT"
+      }
+    },
+    "evaluation_end_exclusive": "2025-11-10",
+    "evaluation_start": "2023-11-12T00:00:00Z",
+    "holdout_start": "2025-11-10",
+    "source": "stored Binance Spot 1h candles; daily = complete UTC days aggregated from them"
+  },
+  "experiment_id": "exp_fadf9d50f30c4b3196e1",
+  "exploratory_only_oos_previously_viewed": true,
+  "gates_provisional": {
+    "dsr_at_least_min": false,
+    "enough_trades": false,
+    "positive_at_stressed_costs": true,
+    "sharpe_ci_above_zero": false,
+    "turnover_cut_at_least_half": true
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "tsmom_trend_v1 on UTC-daily bars halves portfolio turnover vs 1h and passes all gates",
+  "interval": "1d",
+  "kind": "portfolio_backtest",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only.",
+    "Daily bars aggregated from 1h candles; incomplete UTC days are dropped, so lookbacks span an extra day near a gap.",
+    "Positions are not resized after entry; the fixed BTC>ETH>SOL>BNB tie-break favours earlier symbols.",
+    "Stops wider than the policy's 10% maximum are placed at 10% (declared in the protocol).",
+    "The development OOS has been viewed by many earlier trials; this result is exploratory, not confirmatory."
+  ],
+  "params": {
+    "atr_stop_mult": 3.0,
+    "ema_fast": 20,
+    "ema_slow": 100,
+    "mom_lookback": 90
+  },
+  "portfolio": {
+    "annualized_volatility": 0.07929429940345639,
+    "avg_bars_held": 25.54054054054054,
+    "avg_loss": -0.046771559500422645,
+    "avg_win": 0.30974883953661025,
+    "bars": 729,
+    "binding_constraints": {
+      "risk_budget": 37
+    },
+    "cagr": 0.06174783723532973,
+    "calmar": 0.7521403475225185,
+    "daily_bootstrap": {
+      "by_block": {
+        "10d": {
+          "block_days": 10,
+          "sharpe_ci_annualized": [
+            -0.2672126134122007,
+            1.893819891617536
+          ],
+          "total_return_ci": [
+            -0.046433862631819124,
+            0.3497186990852248
+          ]
+        },
+        "20d": {
+          "block_days": 20,
+          "sharpe_ci_annualized": [
+            -0.3720923671350763,
+            1.949482146646454
+          ],
+          "total_return_ci": [
+            -0.06056445884490156,
+            0.36988238587527056
+          ]
+        },
+        "5d": {
+          "block_days": 5,
+          "sharpe_ci_annualized": [
+            -0.287391031530557,
+            1.9442611963295133
+          ],
+          "total_return_ci": [
+            -0.054005296679039395,
+            0.3464828046137171
+          ]
+        }
+      },
+      "ci_level": 0.9,
+      "days": 729,
+      "most_conservative_sharpe_lower": -0.3720923671350763,
+      "n_boot": 2000,
+      "sharpe_annualized": 0.7952515772217497,
+      "total_return": 0.1271234321159438
+    },
+    "daily_cvar_95": -0.009811298670245784,
+    "daily_sharpe_per_day": 0.04162536999954625,
+    "entry_rejections": {
+      "cooldown_after_loss": 2,
+      "max_open_positions": 729,
+      "stop_distance_outside_policy": 5
+    },
+    "evaluation_end_exclusive": "2025-11-10T00:00:00Z",
+    "evaluation_start": "2023-11-12T00:00:00Z",
+    "exit_reasons": {
+      "signal": 31,
+      "stop": 6
+    },
+    "expectancy_per_trade": 0.04958530510418084,
+    "exposure": 0.10765714263931765,
+    "max_consecutive_losses": 9,
+    "max_drawdown": -0.08209616388579799,
+    "max_drawdown_duration_bars": 588,
+    "max_drawdown_recovery_bars": 588,
+    "max_gross_exposure": 0.2364138811266883,
+    "mean_gross_exposure": 0.10765714263931765,
+    "mean_open_positions": 1.4869684499314129,
+    "modeled_cost_bps_initial_equity": {
+      "fee": 42.73944565658446,
+      "half_spread": 4.273944565658444,
+      "slippage": 8.547889131316888,
+      "total": 55.56127935355979
+    },
+    "modeled_cost_bps_initial_equity_per_year": 27.818747550136248,
+    "net_total_return": 0.1271234321159438,
+    "payoff_ratio": 6.622589514762946,
+    "profit_factor": 2.4528109313936834,
+    "share_of_time_invested": 0.7928669410150891,
+    "sharpe": 0.7952515772217497,
+    "sharpe_per_period": 0.04162536999954625,
+    "sortino": 1.1852711453925173,
+    "tie_break": "fixed priority order BTCUSDT > ETHUSDT > SOLUSDT > BNBUSDT",
+    "trades": 37,
+    "trades_by_symbol": {
+      "BNBUSDT": {
+        "net_pnl_initial_equity": -0.01850267409982803,
+        "trades": 15,
+        "win_rate": 0.2
+      },
+      "BTCUSDT": {
+        "net_pnl_initial_equity": 0.07341424017955364,
+        "trades": 8,
+        "win_rate": 0.625
+      },
+      "ETHUSDT": {
+        "net_pnl_initial_equity": -0.01805244729152048,
+        "trades": 5,
+        "win_rate": 0.0
+      },
+      "SOLUSDT": {
+        "net_pnl_initial_equity": 0.05732764829927545,
+        "trades": 9,
+        "win_rate": 0.2222222222222222
+      }
+    },
+    "trades_open_at_end": 1,
+    "trades_per_year": 18.525377229080934,
+    "turnover_per_year": 1.9431451894341152,
+    "win_rate": 0.2702702702702703,
+    "worst_day": -0.026416199104787985,
+    "years": 2.0
+  },
+  "portfolio_at_stressed_costs": {
+    "annualized_volatility": 0.07749958694731933,
+    "avg_bars_held": 25.54054054054054,
+    "avg_loss": -0.04602212763344391,
+    "avg_win": 0.38355732927491903,
+    "bars": 729,
+    "binding_constraints": {
+      "risk_budget": 37
+    },
+    "cagr": 0.05758574160877261,
+    "calmar": 0.6910598754587964,
+    "daily_bootstrap": {
+      "by_block": {
+        "10d": {
+          "block_days": 10,
+          "sharpe_ci_annualized": [
+            -0.3120696088278232,
+            1.8626351532037988
+          ],
+          "total_return_ci": [
+            -0.05045342386854537,
+            0.33419241364167884
+          ]
+        },
+        "20d": {
+          "block_days": 20,
+          "sharpe_ci_annualized": [
+            -0.41150075851350354,
+            1.9212672605529602
+          ],
+          "total_return_ci": [
+            -0.06573329677351224,
+            0.35464351673577355
+          ]
+        },
+        "5d": {
+          "block_days": 5,
+          "sharpe_ci_annualized": [
+            -0.3184798649534363,
+            1.9095230884300818
+          ],
+          "total_return_ci": [
+            -0.05663432237521081,
+            0.33027030127744267
+          ]
+        }
+      },
+      "ci_level": 0.9,
+      "days": 729,
+      "most_conservative_sharpe_lower": -0.41150075851350354,
+      "n_boot": 2000,
+      "sharpe_annualized": 0.7611673978294747,
+      "total_return": 0.11831604503725157
+    },
+    "daily_cvar_95": -0.009591925709757325,
+    "daily_sharpe_per_day": 0.03984132251196894,
+    "entry_rejections": {
+      "cooldown_after_loss": 2,
+      "max_open_positions": 729,
+      "stop_distance_outside_policy": 5
+    },
+    "evaluation_end_exclusive": "2025-11-10T00:00:00Z",
+    "evaluation_start": "2023-11-12T00:00:00Z",
+    "exit_reasons": {
+      "signal": 31,
+      "stop": 6
+    },
+    "expectancy_per_trade": 0.046859917103499446,
+    "exposure": 0.10505037738817136,
+    "max_consecutive_losses": 18,
+    "max_drawdown": -0.08332959798966955,
+    "max_drawdown_duration_bars": 588,
+    "max_drawdown_recovery_bars": 588,
+    "max_gross_exposure": 0.23150072193660803,
+    "mean_gross_exposure": 0.10505037738817136,
+    "mean_open_positions": 1.4869684499314129,
+    "modeled_cost_bps_initial_equity": {
+      "fee": 83.0064191330701,
+      "half_spread": 8.300641913307011,
+      "slippage": 16.601283826614022,
+      "total": 107.90834487299112
+    },
+    "modeled_cost_bps_initial_equity_per_year": 54.02818364697087,
+    "multiplier": 2.0,
+    "net_total_return": 0.11831604503725157,
+    "payoff_ratio": 8.334193767178009,
+    "profit_factor": 2.2990879357732443,
+    "share_of_time_invested": 0.7928669410150891,
+    "sharpe": 0.7611673978294747,
+    "sharpe_per_period": 0.03984132251196894,
+    "sortino": 1.1337869571913317,
+    "tie_break": "fixed priority order BTCUSDT > ETHUSDT > SOLUSDT > BNBUSDT",
+    "trades": 37,
+    "trades_by_symbol": {
+      "BNBUSDT": {
+        "net_pnl_initial_equity": -0.020093379704428885,
+        "trades": 15,
+        "win_rate": 0.2
+      },
+      "BTCUSDT": {
+        "net_pnl_initial_equity": 0.07004235309904967,
+        "trades": 8,
+        "win_rate": 0.5
+      },
+      "ETHUSDT": {
+        "net_pnl_initial_equity": -0.018210765549444723,
+        "trades": 5,
+        "win_rate": 0.0
+      },
+      "SOLUSDT": {
+        "net_pnl_initial_equity": 0.05479759929815593,
+        "trades": 9,
+        "win_rate": 0.1111111111111111
+      }
+    },
+    "trades_open_at_end": 1,
+    "trades_per_year": 18.525377229080934,
+    "turnover_per_year": 1.895726147658126,
+    "win_rate": 0.21621621621621623,
+    "worst_day": -0.02586829994457951,
+    "years": 2.0
+  },
+  "protocol": "research/protocols/daily-baselines-v1.md",
+  "risk_policy": {
+    "cooldown_after_loss_minutes": 60.0,
+    "daily_loss_limit_pct": 2.0,
+    "max_drawdown_kill_pct": 10.0,
+    "max_open_positions": 2,
+    "max_position_notional_pct": 20.0,
+    "max_risk_per_trade_pct": 0.5,
+    "max_stop_distance_pct": 10.0,
+    "max_total_exposure_pct": 50.0,
+    "min_stop_distance_pct": 0.3,
+    "status": "provisional",
+    "version": "0.1.0",
+    "weekly_loss_limit_pct": 5.0
+  },
+  "role": "candidate",
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.40211470684279615,
+    "note": "earlier trials' per-bar Sharpe rescaled to daily units; raw count treats trials as independent",
+    "sharpe_variance_across_trials_daily_units": 0.0004573568980446221,
+    "trials_including_this": 65
+  },
+  "strategy": "tsmom_trend_v1",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT"
+  ],
+  "trade_count_gate": {
+    "min_evaluation_trades": 100,
+    "period": "development OOS window 2023-11-12 to 2025-11-10 (exclusive), all four symbols combined",
+    "trades": 37
+  },
+  "turnover_vs_hourly_reference": {
+    "candidate_cost_bps_per_year": 27.818747550136248,
+    "candidate_turnover_per_year": 1.9431451894341152,
+    "ratio": 0.06403613313467062,
+    "reference_cost_bps_per_year": 419.87142865310034,
+    "reference_turnover_per_year": 30.344511673551573
+  },
+  "working_tree_dirty": false
+}

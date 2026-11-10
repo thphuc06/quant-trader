@@ -4,7 +4,7 @@ Bộ khung nghiên cứu quant + giao dịch có kiểm soát cho **Claude Code*
 Claude đóng vai trò analyst: đọc dữ liệu qua MCP, lập luận trên bằng chứng, đề xuất *trade intent*.
 Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi lệnh phải qua risk engine và được người duyệt.
 
-> **Trạng thái: checkpoint đang phát triển (2026-11-10).** Mặc định `PAPER`, live trading bị khóa.
+> **Trạng thái: checkpoint đang phát triển (2026-11-11).** Mặc định `PAPER`, live trading bị khóa.
 > Chưa có chiến lược nào vượt qua ngưỡng kiểm định — kết quả trung thực hiện tại của hệ thống là `NO_TRADE` / `WATCH`.
 > Đây không phải lời khuyên đầu tư và không có gì ở đây chứng minh khả năng sinh lời.
 
@@ -26,8 +26,10 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | Claude Code harness | `CLAUDE.md`; 4 skills kèm template/reference; 2 subagents chỉ đọc; 3 hook (`SessionStart`, `PreToolUse`, `PostToolUse`); permission least privilege; `state/` để bàn giao giữa các session; [docs/operating-the-trading-desk.md](docs/operating-the-trading-desk.md) |
 | Harness eval | 6 kịch bản chạy bằng session `claude -p` mới với Haiku, chấm bằng code. Baseline 5/6 → sau khi sửa skill: 5 kịch bản đạt mọi lần, S2 đạt 3/3 lần cuối. Xem [reports/harness-eval/](reports/harness-eval/) |
 | Volatility-scaled exposure | Challenger cho 2 baseline, rolling walk-forward và 2× cost stress; chưa qua toàn bộ gate, không bật paper/live |
+| Backtest danh mục (`quant/portfolio.py`), bootstrap lợi nhuận ngày (block 5/10/20), trial accounting cho DSR | Xong, có test (sizing khớp `risk.compute_sizing`) |
+| Baseline khung ngày (protocol đăng ký trước, 1 lần chạy) | Turnover giảm ~95%, nhưng không qua gate số lệnh / CI / DSR → inconclusive, không paper |
 
-Kiểm tra gần nhất (2026-11-10): 285 test pass, `ruff` và `mypy` sạch.
+Kiểm tra gần nhất (2026-11-11): 322 test pass, `ruff` và `mypy` sạch.
 
 ## Kết quả nghiên cứu thật (development period, sau phí)
 
@@ -120,6 +122,35 @@ Replay diagnostic-only trên cùng development OOS của 8 baseline/overlay pair
 
 Phân rã xác nhận turnover chủ yếu đến từ entry/exit của baseline (86.6%); resizing volatility chiếm phần nhỏ. Với giả định 13 bps mỗi chiều, modeled cost trung bình mỗi pairing trong toàn OOS tương đương 36.1% initial equity (fee 27.8%, spread 2.8%, slippage 5.6%). Đây là chi phí mô phỏng theo giả định, không phải số fill thực tế. Replay giữ net return và tổng turnover **khớp chính xác** với records gốc; 8 record `turnover_attribution` được đánh dấu diagnostic-only và không tăng DSR trial count. Holdout tiếp tục khóa.
 
+## Giả thuyết đăng ký trước: baseline khung ngày qua backtest danh mục (2026-11-11)
+
+[Protocol](research/protocols/daily-baselines-v1.md) được commit trước khi viết code và chạy đúng **một lần**. Hai
+baseline chạy trên nến ngày UTC (gộp từ nến 1h, ngày thiếu giờ bị bỏ, không vá), tham số cố định từ
+`features_by_timeframe["1d"]`. Cả hai đi qua backtest danh mục mới (`quant/portfolio.py`): vốn chung cho 4 symbol, sizing
+giống risk engine, policy v0.1.0 (0.5% rủi ro/lệnh, tối đa 2 vị thế, 50% exposure). So sánh với cùng luật trên nến 1h.
+Cửa sổ 2023-11-12 → 2025-11-10; holdout vẫn khóa.
+
+| | tsmom ngày | donchian ngày | tsmom 1h (tham chiếu) | donchian 1h (tham chiếu) |
+|---|---:|---:|---:|---:|
+| Net return 2 năm / ở 2× phí | +12.7% / +11.8% | +10.0% / +9.4% | +7.0% / — | +2.3% / — |
+| Max drawdown | −8.2% | −5.1% | −10.6% | −10.4% |
+| Số lệnh đóng | 37 | 21 | 196 | 190 |
+| Turnover/năm | 1.9× | 1.1× | 30.3× | 30.9× |
+| Chi phí mô phỏng (bps vốn/năm) | 28 | 15 | 420 | 420 |
+| Cận dưới CI 90% Sharpe (thấp nhất trong block 5/10/20 ngày) | −0.37 | −0.38 | — | — |
+| DSR (65 trial) | 0.40 | 0.41 | không tính | không tính |
+
+- **Đạt:** turnover giảm còn 3.6–6.4% so với 1h (mục tiêu ≤ 50%); vẫn dương ở 2× phí.
+- **Không đạt:** số lệnh (21–37, cần ≥ 100), CI của Sharpe vẫn chứa 0 ở mọi độ dài block, DSR < 0.5.
+- **Kết luận theo protocol:** khung ngày giải quyết được cơ chế chi phí nhưng **chưa có bằng chứng edge**. Kết quả
+  inconclusive, **không đề xuất paper trading**, giữ `NO_TRADE` / `WATCH`. Không đổi ngưỡng, universe hay cửa sổ
+  sau khi đã xem kết quả. Bằng chứng tiếp theo chỉ có thể đến từ dữ liệu forward.
+- Lưu ý: sizing 0.5% rủi ro với stop rộng khiến exposure trung bình chỉ 8–11%. Cả hai baseline 1h đều chạm ngưỡng
+  drawdown 10% của policy và bị chặn vào lệnh phần lớn thời gian, nên mức giảm turnover đo được là ước lượng thận trọng.
+  Cửa sổ OOS này đã bị xem bởi nhiều trial trước, nên mọi kết quả chỉ mang tính khám phá.
+
+Chi tiết và experiment IDs: [research/research-log.md](research/research-log.md).
+
 ## Cài đặt
 
 ```bash
@@ -160,6 +191,7 @@ python -m trader research-volatility-overlay # challenger OOS trên dữ liệu 
 python -m trader research-volatility-band    # preregistered 5pp band; exploratory trên cùng OOS
 python -m trader research-volatility-daily   # preregistered daily sizing; exploratory trên cùng OOS
 python -m trader research-turnover-attribution # diagnostic replay; không tính strategy trial
+python -m trader research-daily-baselines    # protocol daily-baselines-v1; chạy lại sẽ ghi thêm 2 trial
 python -m trader train-model --symbol BTCUSDT --model logreg_v1
 python -m trader kill-switch engage --reason "..."
 python -m trader mcp                         # chạy MCP server (stdio)
@@ -208,9 +240,10 @@ data/              runtime (git-ignored): candles, SQLite, models
 1. Không tune thêm volatility band trên development OOS đã xem; tiếp tục giữ holdout khóa.
 2. Chạy thử một chu trình Binance Demo có giám sát (vào lệnh → stop `PROTECTED` → `sync_positions` → thoát bằng SELL
    intent) để kiểm chứng execution ngoài môi trường giả lập; đo fill/slippage thật.
-3. Research (chưa làm): backtest danh mục dùng chung sizing với risk engine; bootstrap trên lợi nhuận ngày; giả thuyết
-   baseline khung 1d để giảm turnover. Đăng ký trước, chỉ một trial.
-4. Chỉ đề cử paper-test khi một ứng viên mới vượt toàn bộ gate trên dữ liệu hợp lệ và vẫn bền ở chi phí stress.
+3. Operator đăng ký lịch chạy `trader shadow-log` mỗi giờ (docs §9) để bắt đầu tích lũy dữ liệu forward sạch.
+4. Quyết định của operator: có thêm hai luật khung ngày vào shadow log để quan sát forward hay không (backtest
+   danh mục, bootstrap ngày và giả thuyết khung 1d đã xong; kết quả inconclusive, xem ở trên).
+5. Chỉ đề cử paper-test khi một ứng viên mới vượt toàn bộ gate trên dữ liệu hợp lệ và vẫn bền ở chi phí stress.
 
 Dự án khởi đầu từ một prompt đặc tả (không nằm trong repo). Thiết kế hiện tại nằm ở [architecture/](architecture/);
 những điểm khác với đặc tả ban đầu được ghi ở [research/research-log.md](research/research-log.md).

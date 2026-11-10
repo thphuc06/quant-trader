@@ -70,3 +70,59 @@ All entries 2026-11-10 (UTC+7 working day). Tools: Claude Code built-in WebSearc
 - Replayed the original hourly baseline and volatility overlay over the same development walk-forward folds. Records use kind `turnover_attribution`, have `diagnostic_only: true` / `counts_toward_dsr: false`, and are ignored by trial accounting.
 - Across the eight overlay pairings, volume-weighted turnover shares were: baseline entry 49.4%, baseline exit 37.2%, in-position overlay resize 1.5%, stop touch 11.9%, stop gap 0%. Mean total overlay turnover was 112.7×/year. Modeled costs averaged 3,613 bps of initial equity per pairing over the evaluation period under the provisional 13 bps/side assumption (2,779 fee, 278 half-spread, 556 slippage bps).
 - Replay reproduced each original hourly overlay's net return and total turnover exactly; all holdouts remained locked. This is descriptive attribution on already-viewed OOS data, not a new strategy trial or alpha evidence.
+
+## Builder checkpoint — shadow log, research reliability (2026-11-11)
+
+- Forward shadow log (`trader shadow-log`, MCP `get_shadow_log`): append-only rows per closed 1h bar with features,
+  regime, baseline targets, validation status, data quality, commit and `logged_at`. First live run logged the
+  2026-11-10 16:00 UTC bar for all four symbols. The hourly schedule is for the operator to register
+  (docs §9); until then the log only grows when run by hand.
+- Portfolio backtester (`quant/portfolio.py`) mirrors the risk engine's entry checks on shared capital; sizing parity
+  with `risk.compute_sizing` is tested. Daily-return block bootstrap reports 5/10/20-day blocks side by side.
+- Gate `min_oos_trades` → `min_evaluation_trades`, with the evaluated period named in each new record. DSR trial
+  accounting now excludes `buy_and_hold`/`no_trade` and counts ML evaluations: the registry held 63 counted trials
+  before the run below (65 under the old rule).
+
+## Preregistered trial — daily-bar baselines through the portfolio (2026-11-11)
+
+Protocol [daily-baselines-v1](protocols/daily-baselines-v1.md) committed in `c95654c` before the runner existed;
+runner committed in `b9d0497`; run once with a clean tree. Window 2023-11-12 → 2025-11-10 (exclusive); holdout locked.
+Daily bars are complete UTC days aggregated from stored 1h candles: they equal native 1d klines on all 136 overlapping
+development days for BTC/ETH (SOL/BNB have no native 1d data); two warm-up days were dropped (partial first day,
+2023-03-24 exchange halt). Risk policy v0.1.0, 13 bps/side, fixed BTC > ETH > SOL > BNB tie-break, stops clipped
+at the policy's 10% maximum.
+
+| | tsmom daily (`exp_fadf9d50`) | donchian daily (`exp_9aecbe3c`) | tsmom 1h ref (`exp_7168d0fd`) | donchian 1h ref (`exp_158cc592`) |
+|---|---:|---:|---:|---:|
+| Net return (2 y) | +12.7% | +10.0% | +7.0% | +2.3% |
+| Net return at 2× costs | +11.8% | +9.4% | — | — |
+| Max drawdown | −8.2% | −5.1% | −10.6% | −10.4% |
+| Sharpe (annualized, per bar) | 0.80 | 0.82 | 0.41 | 0.16 |
+| Lowest 90% CI lower bound (5/10/20-day blocks) | −0.37 | −0.38 | −1.04 | −1.06 |
+| Closed trades | 37 | 21 | 196 | 190 |
+| Turnover / year | 1.9× | 1.1× | 30.3× | 30.9× |
+| Modeled cost, bps of initial equity / year | 28 | 15 | 420 | 420 |
+| Mean gross exposure | 10.8% | 7.9% | 8.1% | 13.2% |
+| DSR (65 trials, daily units) | 0.40 | 0.41 | not a trial | not a trial |
+
+Gates: **H1 turnover cut passes** for both (6.4% and 3.6% of the hourly reference). **G4 (positive at 2× costs)
+passes** for both. **G1 fails** (37 and 21 trades vs 100), **G2 fails** (every block length puts the Sharpe CI
+lower bound below zero), **G3 fails** (DSR 0.40 / 0.41 < 0.5). No candidate passed all gates.
+
+Interpretation, as fixed in the protocol: the slower clock fixes the cost mechanics (costs fall from ~420 to 15–28 bps
+of equity per year), but the result is **inconclusive and not a paper candidate**: with 21–37 trades the Sharpe and
+DSR estimates cannot rank anything, and the point estimates come from a period viewed by many earlier trials. No
+threshold, universe or window change will be made on this period.
+
+Notes the protocol did not anticipate (descriptive only):
+- The 0.5% risk-per-trade sizing with wide daily stops keeps positions small (all entries bound by the risk budget;
+  mean exposure 8–11%), so returns are a small fraction of buy-and-hold moves in either direction.
+- Both hourly references hit the policy's 10% drawdown floor and were then blocked from new entries (tsmom: 20,375
+  rejected entry-bars, invested 27% of the time; donchian: 4,878, invested 48%). Their turnover is therefore
+  understated, so the measured turnover cut is conservative. It also means the hourly baselines would have tripped
+  the account's drawdown control under the current policy.
+- Slot limits mattered for the daily candidates (455–729 entry-bars rejected by `max_open_positions`), so the
+  fixed tie-break shaped which symbols were traded; the per-symbol split is in the records.
+
+Decision: keep `NO_TRADE` / `WATCH`. Possible next evidence is forward only, e.g. adding the two daily rules to the
+shadow log. That changes the plan and is left to the operator.
