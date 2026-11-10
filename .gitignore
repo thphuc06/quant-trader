@@ -37,3 +37,8 @@ Thumbs.db
 
 # original build prompt: kept locally, not part of the repo
 MASTER_PROMPT_*.md
+
+# harness eval raw transcripts (may contain local paths); only summary.md is committed
+reports/harness-eval/**/*.jsonl
+reports/harness-eval/**/*.stderr.txt
+reports/harness-eval/**/*.json
