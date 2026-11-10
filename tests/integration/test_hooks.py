@@ -44,7 +44,7 @@ def test_trader_role_cannot_edit_protected_files(path: str, tmp_path: Path) -> N
     for tool in ("Edit", "Write"):
         result = run_hook("guard.py", edit(path, tool), tmp_path)
         assert result.returncode == 2 and "BLOCKED" in result.stderr, (path, result.stderr)
-    absolute = str((tmp_path / path))
+    absolute = str(tmp_path / path)
     assert run_hook("guard.py", edit(absolute), tmp_path).returncode == 2
 
 
@@ -155,7 +155,14 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
     settings = json.loads((REPO / ".claude" / "settings.json").read_text(encoding="utf-8"))
     permissions = settings["permissions"]
     assert permissions["disableBypassPermissionsMode"] == "disable"
-    for tool in ("create_trade_intent", "execute_approved_trade", "cancel_trade_intent", "activate_kill_switch"):
+    for tool in (
+        "record_decision_report",
+        "submit_post_trade_review",
+        "create_trade_intent",
+        "execute_approved_trade",
+        "cancel_trade_intent",
+        "activate_kill_switch",
+    ):
         assert f"mcp__trading__{tool}" in permissions["ask"]
         assert not any(rule in (f"mcp__trading__{tool}", "mcp__trading", "mcp__trading__*") for rule in permissions["allow"])
     assert any(".env" in rule for rule in permissions["deny"])
@@ -168,3 +175,14 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
     mcp = json.loads((REPO / ".mcp.json").read_text(encoding="utf-8"))
     server = mcp["mcpServers"]["trading"]
     assert server["args"] == ["-m", "trader.mcp_server"] and "env" not in server  # no secrets in the committed config
+    assert server["command"] == "python"
+    assert {path.name for path in (REPO / ".claude" / "skills").iterdir()} == {
+        "trading-desk",
+        "analyze-symbol",
+        "post-trade-review",
+        "strategy-research",
+    }
+    assert {path.name for path in (REPO / ".claude" / "agents").glob("*.md")} == {
+        "news-researcher.md",
+        "risk-reviewer.md",
+    }

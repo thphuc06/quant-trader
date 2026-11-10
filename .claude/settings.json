@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__trading__get_*",
+      "mcp__trading__search_*",
+      "mcp__trading__fetch_web_page",
+      "mcp__trading__calculate_position_risk",
+      "mcp__trading__get_pending_lessons"
+    ],
+    "ask": [
+      "mcp__trading__record_decision_report",
+      "mcp__trading__submit_post_trade_review",
+      "mcp__trading__create_trade_intent",
+      "mcp__trading__execute_approved_trade",
+      "mcp__trading__cancel_trade_intent",
+      "mcp__trading__activate_kill_switch"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(python -m trader approve *)",
+      "Bash(python -m trader live-unlock *)",
+      "Bash(python -m trader kill-switch release *)"
+    ],
+    "disableBypassPermissionsMode": "disable"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "python ./.claude/hooks/session_start.py"}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|PowerShell",
+        "hooks": [
+          {"type": "command", "command": "python ./.claude/hooks/guard.py"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__trading__.*",
+        "hooks": [
+          {"type": "command", "command": "python ./.claude/hooks/audit.py"}
+        ]
+      }
+    ]
+  }
+}
