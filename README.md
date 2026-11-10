@@ -107,5 +107,5 @@ data/              runtime (git-ignored): candles, SQLite, models
 3. Chạy thử Binance Demo Mode với key demo, đo slippage thật.
 4. Paper trading đủ lâu trước khi cân nhắc bất cứ điều gì khác.
 
-File [MASTER_PROMPT_CLAUDE_CODE_AI_QUANT_TRADING_HARNESS.md](MASTER_PROMPT_CLAUDE_CODE_AI_QUANT_TRADING_HARNESS.md) là prompt gốc dùng làm tham chiếu; các điểm thay đổi so với prompt được ghi ở
-[research/research-log.md](research/research-log.md).
+Dự án khởi đầu từ một prompt đặc tả (không nằm trong repo). Thiết kế hiện tại nằm ở [architecture/](architecture/);
+những điểm khác với đặc tả ban đầu được ghi ở [research/research-log.md](research/research-log.md).

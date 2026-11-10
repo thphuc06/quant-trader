@@ -34,3 +34,6 @@ Thumbs.db
 
 # claude code local overrides
 .claude/settings.local.json
+
+# original build prompt: kept locally, not part of the repo
+MASTER_PROMPT_*.md
