@@ -19,7 +19,7 @@ from trader import __version__
 from trader.config import AppConfig, Settings, TradingMode, load_app_config, load_settings, project_root
 from trader.domain import DecisionReport, OrderType, Side, TradeIntentRequest, jsonable, new_id
 from trader.exchanges.binance.client import BinancePublicClient
-from trader.execution import Broker, ExecutionService
+from trader.execution import Broker, ExecutionError, ExecutionService
 from trader.knowledge import KnowledgeStore
 from trader.learning import PostTradeReview, submit_review, trade_case
 from trader.marketdata import MarketData, MarketDataSource
@@ -964,6 +964,16 @@ class TradingDesk:
         return self._envelope(
             "cancel_trade_intent", {"intent_id": intent_id}, data, status="ok" if cancelled else "rejected"
         )
+
+    def protect_position(self, symbol: str) -> Envelope:
+        symbol = self._check_symbol(symbol)
+        try:
+            result = self.execution.protect_position(symbol)
+        except ExecutionError as exc:
+            return self._envelope("protect_position", {"symbol": symbol}, {"reason": str(exc)}, status="rejected")
+        ok = result.get("status") in {"PROTECTED", "not_applicable", "closed"}
+        warnings = [] if ok else ["The position is still not protected. Tell the operator."]
+        return self._envelope("protect_position", {"symbol": symbol}, result, status="ok" if ok else "error", warnings=warnings)
 
     def activate_kill_switch(self, reason: str, cancel_pending_entries: bool = False) -> Envelope:
         state = self.execution.engage_kill_switch(

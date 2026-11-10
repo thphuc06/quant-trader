@@ -145,7 +145,7 @@ def test_schema_initialises_and_is_idempotent(tmp_path: Path) -> None:
     db = Database(tmp_path / "t.sqlite")
     db.init_schema()
     db.init_schema()
-    assert db.schema_version() == 1
+    assert db.schema_version() == 2
 
 
 def test_journal_is_append_only_and_tamper_evident(tmp_path: Path) -> None:
@@ -206,3 +206,27 @@ def test_unclosed_candle_is_dropped() -> None:
     frame = synthetic_candles(10)
     now = int(frame["close_time"].iloc[-1]) - 10  # last bar still open
     assert len(drop_unclosed(frame, now)) == 9
+
+
+def test_schema_v1_database_is_upgraded_in_place(tmp_path: Path) -> None:
+    """An operator's existing database must keep working after the protection columns were added."""
+    path = tmp_path / "v1.sqlite"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta VALUES ('schema_version', '1');
+        CREATE TABLE positions (mode TEXT NOT NULL, symbol TEXT NOT NULL, quantity TEXT NOT NULL, avg_entry TEXT NOT NULL,
+            stop_price TEXT, take_profit TEXT, opened_at TEXT NOT NULL, intent_id TEXT NOT NULL, last_checked_ms INTEGER NOT NULL,
+            entry_fees TEXT NOT NULL DEFAULT '0', PRIMARY KEY (mode, symbol));
+        INSERT INTO positions VALUES ('BINANCE_DEMO', 'BTCUSDT', '0.5', '100', '98', NULL, '2026-11-10T00:00:00Z', 'int_1', 0, '0');
+        """
+    )
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    db.init_schema()
+    db.init_schema()  # idempotent
+    assert db.schema_version() == 2
+    row = db.query("SELECT * FROM positions")[0]
+    assert row["quantity"] == "0.5" and row["protection"] == "UNKNOWN" and row["stop_client_order_id"] is None

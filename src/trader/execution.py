@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from trader.config import AppConfig, LoadedPolicy, Settings, TradingMode, load_risk_policy
 from trader.domain import (
     OPEN_INTENT_STATUSES,
+    PROTECTED_STATES,
     Fill,
     IntentStatus,
     OrderResult,
@@ -31,7 +32,12 @@ from trader.domain import (
     jsonable,
     new_id,
 )
-from trader.exchanges.binance.client import BinanceAPIError, BinanceTradingClient, OrderStateUnknown
+from trader.exchanges.binance.client import (
+    BinanceAPIError,
+    BinanceTradingClient,
+    CancelReplaceResult,
+    OrderStateUnknown,
+)
 from trader.exchanges.binance.filters import round_price, round_quantity
 from trader.marketdata import MarketData
 from trader.risk import RiskContext, validate_intent
@@ -41,7 +47,11 @@ from trader.timeutil import from_ms, iso, parse_iso, to_ms, utc_now
 
 BPS = Decimal(10_000)
 KILL_SWITCH_KEY = "kill_switch"
-STOP_LIMIT_BUFFER = Decimal("0.005")  # stop-limit sell price sits 0.5% under the trigger
+# Protective stops are STOP_LOSS orders: a MARKET sell once the trigger trades. A STOP_LOSS_LIMIT can be
+# skipped by a gap and leave the position unprotected, which the risk sizing (loss capped at the stop) assumes
+# cannot happen. Accepted cost: slippage beyond the trigger in a fast market.
+STOP_ORDER_TYPE = "STOP_LOSS"
+UNKNOWN_GRACE_SECONDS = 30
 
 
 class ExecutionError(ValueError):
@@ -81,6 +91,18 @@ class Broker(Protocol):
     ) -> OrderResult | None: ...
 
     def cancel(self, symbol: str, client_order_id: str) -> None: ...
+
+    def cancel_replace_exit(
+        self,
+        *,
+        symbol: str,
+        stop_client_order_id: str,
+        order_type: OrderType,
+        quantity: Decimal,
+        limit_price: Decimal | None,
+        client_order_id: str,
+        quote: Quote,
+    ) -> CancelReplaceResult: ...
 
 
 class PaperBroker:
@@ -213,6 +235,9 @@ class PaperBroker:
     def cancel(self, symbol: str, client_order_id: str) -> None:
         return None
 
+    def cancel_replace_exit(self, **_: Any) -> CancelReplaceResult:
+        raise ExecutionError("paper positions have no exchange stop to cancel")
+
 
 class BinanceBroker:
     """Demo/Live adapter. Verified against mocked HTTP only (see architecture/adr/0005)."""
@@ -271,15 +296,42 @@ class BinanceBroker:
         filters: SymbolFilters,
         client_order_id: str,
     ) -> OrderResult | None:
-        trigger = round_price(stop_price, filters)
-        limit = round_price(stop_price * (1 - STOP_LIMIT_BUFFER), filters)
         return self.client.new_order(
-            symbol=symbol, side=Side.SELL, order_type="STOP_LOSS_LIMIT", quantity=quantity, client_order_id=client_order_id,
-            price=limit, stop_price=trigger, time_in_force="GTC",
-        )  # fmt: skip
+            symbol=symbol,
+            side=Side.SELL,
+            order_type=STOP_ORDER_TYPE,
+            quantity=quantity,
+            client_order_id=client_order_id,
+            stop_price=round_price(stop_price, filters),
+        )
 
     def cancel(self, symbol: str, client_order_id: str) -> None:
         self.client.cancel_order(symbol, client_order_id)
+
+    def cancel_replace_exit(
+        self,
+        *,
+        symbol: str,
+        stop_client_order_id: str,
+        order_type: OrderType,
+        quantity: Decimal,
+        limit_price: Decimal | None,
+        client_order_id: str,
+        quote: Quote,
+    ) -> CancelReplaceResult:
+        result = self.client.cancel_replace(
+            symbol=symbol,
+            cancel_client_order_id=stop_client_order_id,
+            side=Side.SELL,
+            order_type=order_type.value,
+            quantity=quantity,
+            client_order_id=client_order_id,
+            price=limit_price if order_type is OrderType.LIMIT else None,
+            time_in_force="IOC" if order_type is OrderType.LIMIT else None,
+        )
+        if result.new_order is not None:
+            result.new_order = result.new_order.model_copy(update={"reference_price": quote.bid})
+        return result
 
 
 # --------------------------------------------------------------------------- service
@@ -439,9 +491,14 @@ class ExecutionService:
                 opened_at=parse_iso(r["opened_at"]),
                 intent_id=r["intent_id"],
                 last_checked_ms=int(r["last_checked_ms"]),
+                protection=r["protection"],
+                stop_client_order_id=r["stop_client_order_id"],
             )
             for r in rows
         ]
+
+    def position(self, symbol: str) -> Position | None:
+        return next((p for p in self.positions() if p.symbol == symbol), None)
 
     def portfolio(self, known_quotes: dict[str, Quote] | None = None) -> PortfolioState:
         """Equity = free quote balance + positions marked at the bid. Raises if any input is unavailable."""
@@ -804,8 +861,12 @@ class ExecutionService:
 
         quantity = report.sizing.quantity
         broker = self.broker()
-        if request.side is Side.SELL:
-            self._cancel_protective_stop(request.symbol)
+        held = self.position(request.symbol) if request.side is Side.SELL else None
+        exchange_stop = (
+            held.stop_client_order_id
+            if held is not None and self.mode is not TradingMode.PAPER and held.protection in ("PROTECTED", "UNKNOWN")
+            else None
+        )
         self.db.journal_append(
             intent_id,
             "order_submitted",
@@ -814,8 +875,14 @@ class ExecutionService:
                 "quantity": quantity,
                 "side": request.side.value,
                 "type": request.order_type.value,
+                "via": "cancel_replace" if exchange_stop else "new_order",
+                "cancels_stop": exchange_stop,
             },
         )
+        if held is not None and exchange_stop is not None:
+            # A spot stop locks the base asset, so the sell cannot go first. Cancel and sell in one request:
+            # if the cancel fails (stop already filled or gone), Binance does not attempt the sell.
+            return self._exit_with_cancel_replace(intent, held, exchange_stop, quantity, context.quote, context.filters)
         try:
             result = broker.execute(
                 symbol=request.symbol, side=request.side, order_type=request.order_type, quantity=quantity,
@@ -835,6 +902,88 @@ class ExecutionService:
             self.db.journal_append(intent_id, "order_rejected", {"detail": str(exc)})
             return {"status": "rejected", "intent_status": "FAILED", "reason": str(exc)}
         return self._apply_result(intent, result, context.filters)
+
+    def _exit_with_cancel_replace(
+        self,
+        intent: TradeIntent,
+        position: Position,
+        stop_client_order_id: str,
+        quantity: Decimal,
+        quote: Quote,
+        filters: SymbolFilters,
+    ) -> dict[str, Any]:
+        request = intent.request
+        try:
+            outcome = self.broker().cancel_replace_exit(
+                symbol=request.symbol,
+                stop_client_order_id=stop_client_order_id,
+                order_type=request.order_type,
+                quantity=quantity,
+                limit_price=request.limit_price,
+                client_order_id=intent.client_order_id,
+                quote=quote,
+            )
+        except OrderStateUnknown as exc:
+            self._set_status(intent.intent_id, IntentStatus.UNKNOWN, expected=IntentStatus.EXECUTING)
+            self.db.journal_append(intent.intent_id, "order_state_unknown", {"detail": str(exc), "leg": "cancel_replace"})
+            self._set_protection(position, "UNKNOWN", stop_client_order_id, f"cancel-replace outcome unknown: {exc}")
+            return {
+                "status": "error",
+                "intent_status": "UNKNOWN",
+                "detail": "Both the stop cancel and the sell are unknown. Nothing will be resent; new entries are blocked "
+                "until sync_positions and get_trade_intent resolve the state.",
+                **self.reconcile(intent.intent_id),
+            }
+        except BinanceAPIError as exc:  # e.g. rate limited before processing: the stop is still in place
+            self._set_status(intent.intent_id, IntentStatus.FAILED, expected=IntentStatus.EXECUTING)
+            self.db.journal_append(intent.intent_id, "order_rejected", {"detail": str(exc), "leg": "cancel_replace"})
+            return {"status": "rejected", "intent_status": "FAILED", "reason": str(exc)}
+
+        self.db.journal_append(
+            intent.intent_id,
+            "cancel_replace_result",
+            {"cancel": outcome.cancel_result, "new_order": outcome.new_order_result, "detail": outcome.detail},
+        )
+        if outcome.cancel_result == "FAILURE":
+            self._set_status(intent.intent_id, IntentStatus.FAILED, expected=IntentStatus.EXECUTING)
+            settled = self.monitor_positions()  # the usual reason: the stop already filled
+            return {
+                "status": "rejected",
+                "intent_status": "FAILED",
+                "reason": "The protective stop could not be cancelled (it may already have filled), so no sell was sent.",
+                "detail": outcome.detail,
+                "settled": settled,
+            }
+        if outcome.cancel_result == "SUCCESS":
+            self.db.execute(
+                "UPDATE orders SET status='CANCELED', updated_at=? WHERE client_order_id=?",
+                (iso(utc_now()), stop_client_order_id),
+            )
+            if outcome.new_order_result == "SUCCESS" and outcome.new_order is not None:
+                # transient: the remainder of a partial exit is re-protected inside _apply_result
+                self._set_protection(position, "UNPROTECTED", None, "stop cancelled for exit", engage=False)
+                return self._apply_result(intent, outcome.new_order, filters)
+            unknown = outcome.new_order_result == "UNKNOWN"
+            self._set_status(
+                intent.intent_id, IntentStatus.UNKNOWN if unknown else IntentStatus.FAILED, expected=IntentStatus.EXECUTING
+            )
+            self._set_protection(position, "UNPROTECTED", None, f"stop cancelled but exit order {outcome.new_order_result}")
+            return {
+                "status": "error",
+                "intent_status": "UNKNOWN" if unknown else "FAILED",
+                "detail": "POSITION HAS NO PROTECTIVE STOP: the stop was cancelled but the exit order "
+                f"{'outcome is unknown' if unknown else 'failed'}. New entries are blocked. Tell the operator; "
+                "call protect_position or retry the exit with a new intent.",
+                "exchange_detail": outcome.detail,
+            }
+        self._set_status(intent.intent_id, IntentStatus.UNKNOWN, expected=IntentStatus.EXECUTING)
+        self._set_protection(position, "UNKNOWN", stop_client_order_id, "cancel-replace response could not be read")
+        return {
+            "status": "error",
+            "intent_status": "UNKNOWN",
+            "detail": "Cancel-replace response could not be interpreted. Nothing will be resent; call sync_positions.",
+            "exchange_detail": outcome.detail,
+        }
 
     def reconcile(self, intent_id: str) -> dict[str, Any]:
         """Resolve an UNKNOWN intent by asking the exchange for the order by its client id."""
@@ -966,8 +1115,12 @@ class ExecutionService:
         }
         if request.side is Side.BUY:
             held = result.executed_qty - base_fee
+            if self.mode is TradingMode.PAPER:
+                initial_protection = "SIMULATED" if request.stop_price is not None else "NONE"
+            else:
+                initial_protection = "UNKNOWN"  # until the exchange confirms a working stop
             self.db.execute(
-                "INSERT INTO positions(mode, symbol, quantity, avg_entry, stop_price, take_profit, opened_at, intent_id, last_checked_ms, entry_fees) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO positions(mode, symbol, quantity, avg_entry, stop_price, take_profit, opened_at, intent_id, last_checked_ms, entry_fees, protection) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     self.mode.value,
                     request.symbol,
@@ -979,6 +1132,7 @@ class ExecutionService:
                     intent.intent_id,
                     to_ms(utc_now()),
                     format(fees_in_quote, "f"),
+                    initial_protection,
                 ),  # fmt: skip
             )
             self.db.journal_append(
@@ -992,7 +1146,9 @@ class ExecutionService:
                     "target": request.take_profit,
                 },
             )
-            summary["protective_stop"] = self._place_stop(intent, held, filters)
+            opened = self.position(request.symbol)
+            assert opened is not None
+            summary["protective_stop"] = self._protect(opened, filters)
         else:
             summary["closed"] = self._reduce_position(
                 request.symbol,
@@ -1002,55 +1158,126 @@ class ExecutionService:
                 "operator_exit",
                 intent.intent_id,
             )
+            remaining = self.position(request.symbol)
+            if remaining is not None and remaining.protection not in PROTECTED_STATES:
+                summary["protective_stop"] = self._protect(remaining, filters)
         self._set_status(intent.intent_id, IntentStatus.FILLED, expected=IntentStatus.EXECUTING)
+        still_open = self.position(request.symbol)
+        if still_open is not None and still_open.protection not in PROTECTED_STATES:
+            summary["status"] = "error"
+            summary["warnings"].append(
+                f"POSITION {request.symbol} IS NOT PROTECTED (protection={still_open.protection}). "
+                "The kill switch is engaged and new entries are blocked. Tell the operator now; "
+                "call sync_positions, then protect_position."
+            )
         return jsonable(summary)
 
-    def _place_stop(self, intent: TradeIntent, held: Decimal, filters: SymbolFilters) -> dict[str, Any]:
-        stop = intent.request.stop_price
-        if stop is None:
-            return {"status": "none", "detail": "no stop configured"}
+    # ------------------------------------------------------------------ position protection
+
+    def _set_protection(
+        self, position: Position, state: str, stop_client_order_id: str | None, reason: str, engage: bool = True
+    ) -> None:
+        """Record the protection state. Losing protection engages the kill switch (stop_new_orders)."""
+        self.db.execute(
+            "UPDATE positions SET protection=?, stop_client_order_id=? WHERE mode=? AND symbol=?",
+            (state, stop_client_order_id, self.mode.value, position.symbol),
+        )
+        self.db.journal_append(
+            position.intent_id,
+            "protection_changed",
+            {"symbol": position.symbol, "from": position.protection, "to": state, "stop": stop_client_order_id, "reason": reason},
+        )
+        if engage and state not in PROTECTED_STATES and not self.kill_switch().get("engaged"):
+            self.engage_kill_switch(f"{position.symbol} protective stop {state.lower()}: {reason}"[:300], by="system")
+
+    def _next_stop_client_id(self, intent_id: str) -> str:
+        rows = self.db.query("SELECT client_order_id FROM intents WHERE intent_id=?", (intent_id,))
+        base = rows[0]["client_order_id"] if rows else "ct-" + intent_id.removeprefix("int_")
+        attempts = self.db.query("SELECT COUNT(*) AS n FROM orders WHERE intent_id=? AND role='stop'", (intent_id,))[0]["n"]
+        return f"{base}-s{int(attempts) + 1}"  # <= 36 chars, the Binance limit for client order ids
+
+    def _protect(self, position: Position, filters: SymbolFilters) -> dict[str, Any]:
+        """Place an exchange STOP_LOSS for the whole position and record the outcome. Never raises."""
         if self.mode is TradingMode.PAPER:
             return {
-                "status": "simulated",
-                "detail": "paper stop is evaluated against 1m/1h bars whenever positions are reviewed; nothing watches it between sessions",
+                "status": "simulated" if position.stop_price is not None else "none",
+                "detail": "paper stops are settled by sync_positions against historical bars; nothing watches them between sessions",
             }
-        quantity = round_quantity(held, filters, OrderType.LIMIT)
-        client_id = intent.client_order_id + "-s"
+        if position.stop_price is None:
+            self._set_protection(position, "UNPROTECTED", None, "position has no stop price")
+            return {"status": "UNPROTECTED", "detail": "position has no stop price"}
+        if filters.order_types and STOP_ORDER_TYPE not in filters.order_types:
+            reason = f"{STOP_ORDER_TYPE} is not an allowed order type for {position.symbol}"
+            self._set_protection(position, "UNPROTECTED", None, reason)
+            return {"status": "UNPROTECTED", "detail": reason}
+        quantity = round_quantity(position.quantity, filters, OrderType.MARKET)
+        client_id = self._next_stop_client_id(position.intent_id)
         try:
             placed = self.broker().place_protective_stop(
-                symbol=intent.request.symbol,
-                quantity=quantity,
-                stop_price=stop,
-                filters=filters,
-                client_order_id=client_id,
+                symbol=position.symbol, quantity=quantity, stop_price=position.stop_price, filters=filters, client_order_id=client_id
             )
+        except OrderStateUnknown as exc:
+            pending = OrderResult(
+                client_order_id=client_id, exchange_order_id=None, symbol=position.symbol, side=Side.SELL, order_type=OrderType.MARKET,
+                status="UNKNOWN", requested_qty=quantity, executed_qty=Decimal(0), avg_price=None, detail=str(exc),
+            )  # fmt: skip
+            self._record_order(position.intent_id, "stop", pending)
+            self.db.journal_append(position.intent_id, "protective_stop_unknown", {"client_order_id": client_id, "detail": str(exc)})
+            self._set_protection(position, "UNKNOWN", client_id, f"stop request outcome unknown: {exc}")
+            return {"status": "UNKNOWN", "client_order_id": client_id, "detail": "stop request outcome unknown; sync_positions will reconcile it"}
         except Exception as exc:
-            self.db.journal_append(intent.intent_id, "protective_stop_failed", {"detail": str(exc)})
-            return {
-                "status": "FAILED",
-                "detail": f"POSITION IS OPEN WITHOUT AN EXCHANGE STOP: {type(exc).__name__}: {exc}. Tell the operator immediately.",
-            }
-        if placed is not None:
-            self._record_order(intent.intent_id, "stop", placed)
-            self.db.journal_append(intent.intent_id, "protective_stop_placed", placed)
-        return {"status": "placed", "client_order_id": client_id, "trigger": stop}
+            rejected = OrderResult(
+                client_order_id=client_id, exchange_order_id=None, symbol=position.symbol, side=Side.SELL, order_type=OrderType.MARKET,
+                status="REJECTED", requested_qty=quantity, executed_qty=Decimal(0), avg_price=None, detail=str(exc)[:300],
+            )  # fmt: skip
+            self._record_order(position.intent_id, "stop", rejected)  # audit trail; also keeps client ids unique
+            self.db.journal_append(position.intent_id, "protective_stop_failed", {"client_order_id": client_id, "detail": str(exc)})
+            self._set_protection(position, "UNPROTECTED", None, f"stop rejected: {type(exc).__name__}: {exc}")
+            return {"status": "UNPROTECTED", "detail": f"{type(exc).__name__}: {exc}"}
+        if placed is None:
+            self._set_protection(position, "UNPROTECTED", None, "broker returned no stop order")
+            return {"status": "UNPROTECTED", "detail": "broker returned no stop order"}
+        triggered = placed.status in ("FILLED", "PARTIALLY_FILLED")
+        # A stop that filled on placement is recorded as unfilled so _monitor_exchange settles the fill exactly once.
+        recorded = placed.model_copy(update={"executed_qty": Decimal(0), "avg_price": None}) if triggered else placed
+        self._record_order(position.intent_id, "stop", recorded)
+        self.db.journal_append(position.intent_id, "protective_stop_response", placed)
+        if placed.status == "NEW":
+            self._set_protection(position, "PROTECTED", client_id, "exchange accepted the stop")
+            return {"status": "PROTECTED", "client_order_id": client_id, "trigger": position.stop_price, "type": STOP_ORDER_TYPE}
+        if placed.status in ("FILLED", "PARTIALLY_FILLED"):
+            self._set_protection(position, "PROTECTED", client_id, "stop triggered immediately", engage=False)
+            refreshed = self.position(position.symbol)
+            event = self._monitor_exchange(refreshed) if refreshed is not None else None
+            return {"status": "TRIGGERED", "client_order_id": client_id, "settled": event}
+        self._set_protection(position, "UNPROTECTED", None, f"exchange returned stop status {placed.status}: {placed.detail}")
+        return {"status": "UNPROTECTED", "detail": f"stop status {placed.status}"}
 
-    def _cancel_protective_stop(self, symbol: str) -> None:
+    def protect_position(self, symbol: str) -> dict[str, Any]:
+        """(Re-)place the protective stop of an unprotected position. Allowed while the kill switch is engaged:
+        it only reduces risk. Never releases the kill switch."""
+        position = self.position(symbol)
+        if position is None:
+            raise ExecutionError(f"no open position in {symbol}")
         if self.mode is TradingMode.PAPER:
-            return
-        rows = self.db.query(
-            "SELECT client_order_id FROM orders WHERE mode=? AND symbol=? AND role='stop' AND status='NEW'",
-            (self.mode.value, symbol),
-        )
-        for row in rows:
-            try:
-                self.broker().cancel(symbol, row["client_order_id"])
-                self.db.execute(
-                    "UPDATE orders SET status='CANCELED', updated_at=? WHERE client_order_id=?",
-                    (iso(utc_now()), row["client_order_id"]),
-                )
-            except BinanceAPIError:
-                continue  # already filled or gone; reconciliation in monitor_positions() will settle it
+            return {"status": "not_applicable", "detail": "paper positions use simulated stops"}
+        if position.protection == "PROTECTED":
+            return {"status": "PROTECTED", "detail": "already protected", "client_order_id": position.stop_client_order_id}
+        if position.protection == "UNKNOWN":
+            event = self._monitor_exchange(position)  # resolve first: never stack a second stop on an unknown one
+            position = self.position(symbol)
+            if position is None:
+                return {"status": "closed", "settled": event}
+            if position.protection != "UNPROTECTED":
+                return {"status": position.protection, "detail": "existing stop state resolved; nothing placed", "settled": event}
+        quote = self.market.source.quote(symbol)
+        if position.stop_price is not None and quote.bid <= position.stop_price:
+            return {
+                "status": "UNPROTECTED",
+                "detail": f"bid {quote.bid} is already at or below the stop {position.stop_price}; a stop would trigger immediately. "
+                "Exit with a SELL intent instead.",
+            }
+        return self._protect(position, self.market.filters(symbol, max_age_seconds=300))
 
     def _reduce_position(
         self,
@@ -1187,30 +1414,54 @@ class ExecutionService:
             )
         return None
 
+    def _seconds_since_event(self, trade_id: str, event_type: str) -> float:
+        events = [e for e in self.db.journal_events(trade_id) if e["event_type"] == event_type]
+        return (utc_now() - parse_iso(events[-1]["ts"])).total_seconds() if events else float("inf")
+
     def _monitor_exchange(self, position: Position) -> dict[str, Any] | None:
-        rows = self.db.query(
-            "SELECT client_order_id FROM orders WHERE mode=? AND symbol=? AND role='stop' AND status IN ('NEW','PARTIALLY_FILLED')",
-            (self.mode.value, position.symbol),
-        )
-        for row in rows:
-            order = self.broker().find_order(position.symbol, row["client_order_id"])
-            if order is None:
-                continue
-            self._record_order(position.intent_id, "stop", order)
-            if order.executed_qty > 0 and order.avg_price is not None:
-                filters = self.market.filters(position.symbol)
-                fees = sum(
-                    (
-                        f.fee if f.fee_asset == filters.quote_asset else f.fee * order.avg_price
-                        for f in order.fills
-                        if f.fee_asset in (filters.quote_asset, filters.base_asset)
-                    ),
-                    Decimal(0),
-                )
-                closed = self._reduce_position(
-                    position.symbol, order.executed_qty, order.avg_price, fees, "stop", None
-                )
-                return {"status": "closed", **closed}
+        """Reconcile the position's protective stop with the exchange and settle any new fills of it."""
+        stop_id = position.stop_client_order_id
+        base = {"symbol": position.symbol, "stop_client_order_id": stop_id}
+        if stop_id is None:
+            if position.protection not in PROTECTED_STATES:
+                return {**base, "status": "unprotected", "detail": "no working stop; call protect_position"}
+            return None
+        order = self.broker().find_order(position.symbol, stop_id)
+        if order is None:
+            if position.protection == "UNKNOWN":
+                if self._seconds_since_event(position.intent_id, "protection_changed") < UNKNOWN_GRACE_SECONDS:
+                    return {**base, "status": "still_unknown", "detail": "stop not found yet; check again in 30 s"}
+                self._set_protection(position, "UNPROTECTED", None, "exchange reports no such stop order")
+                return {**base, "status": "unprotected", "detail": "the stop request never reached the exchange"}
+            self._set_protection(position, "UNPROTECTED", None, "exchange no longer knows the stop order")
+            return {**base, "status": "unprotected", "detail": "stop order missing on the exchange"}
+
+        previous = self.db.query("SELECT executed_qty FROM orders WHERE client_order_id=?", (stop_id,))
+        already_applied = Decimal(previous[0]["executed_qty"]) if previous else Decimal(0)
+        self._record_order(position.intent_id, "stop", order)
+        delta = order.executed_qty - already_applied
+        if delta > 0 and order.avg_price is not None:
+            filters = self.market.filters(position.symbol)
+            reported = sum(
+                (
+                    f.fee if f.fee_asset == filters.quote_asset else f.fee * order.avg_price
+                    for f in order.fills
+                    if f.fee_asset in (filters.quote_asset, filters.base_asset)
+                ),
+                Decimal(0),
+            )
+            if order.fills:
+                fees, fee_basis = reported * delta / order.executed_qty, "reported"
+            else:  # GET /api/v3/order carries no fills: estimate instead of booking zero
+                fees, fee_basis = delta * order.avg_price * self.fee_rate(), "estimated"
+            closed = self._reduce_position(position.symbol, delta, order.avg_price, fees, "stop", None)
+            return {**base, "status": "closed" if closed["remaining"] <= 0 else "partially_closed", "fee_basis": fee_basis, **closed}
+        if order.status == "NEW" and position.protection != "PROTECTED":
+            self._set_protection(position, "PROTECTED", stop_id, "exchange confirmed the stop")
+            return {**base, "status": "protected", "detail": "stop confirmed on the exchange"}
+        if order.status in ("CANCELED", "EXPIRED", "REJECTED"):
+            self._set_protection(position, "UNPROTECTED", None, f"stop order is {order.status}")
+            return {**base, "status": "unprotected", "detail": f"stop order is {order.status}; call protect_position"}
         return None
 
     def closed_trades(self, limit: int = 20) -> list[dict[str, Any]]:

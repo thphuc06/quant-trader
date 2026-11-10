@@ -17,7 +17,13 @@ from typing import Any
 from trader.domain import jsonable
 from trader.timeutil import iso, utc_now
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Columns added after v1. init_schema() adds them to existing databases in place.
+MIGRATIONS: list[tuple[int, str, str, str]] = [
+    (2, "positions", "protection", "TEXT NOT NULL DEFAULT 'UNKNOWN'"),
+    (2, "positions", "stop_client_order_id", "TEXT"),
+]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -117,6 +123,8 @@ CREATE TABLE IF NOT EXISTS positions (
     intent_id TEXT NOT NULL,
     last_checked_ms INTEGER NOT NULL,
     entry_fees TEXT NOT NULL DEFAULT '0',
+    protection TEXT NOT NULL DEFAULT 'UNKNOWN',
+    stop_client_order_id TEXT,
     PRIMARY KEY (mode, symbol)
 );
 
@@ -212,8 +220,14 @@ class Database:
         conn = self._connect()
         try:
             conn.executescript(SCHEMA)
+            for _version, table, column, ddl in MIGRATIONS:
+                existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
             conn.execute(
-                "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
+                "INSERT INTO meta(key, value) VALUES ('schema_version', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(SCHEMA_VERSION),),
             )
         finally:
             conn.close()

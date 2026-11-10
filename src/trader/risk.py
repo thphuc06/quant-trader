@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from trader.config import LoadedPolicy, TradingMode
 from trader.domain import (
+    PROTECTED_STATES,
     CheckResult,
     OrderType,
     PortfolioState,
@@ -256,6 +257,14 @@ def validate_intent(
                 "no_existing_position",
                 request.symbol not in held,
                 "one position per symbol; adding to a position is not supported",
+            )
+            exposed = sorted(f"{p.symbol}:{p.protection}" for p in portfolio.positions if p.protection not in PROTECTED_STATES)
+            checks.add(
+                "all_positions_protected",
+                not exposed,
+                f"positions without a confirmed stop: {exposed}; run sync_positions / protect_position first"
+                if exposed
+                else "every open position has a confirmed or simulated stop",
             )
             checks.add(
                 "max_open_positions",

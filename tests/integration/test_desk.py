@@ -373,14 +373,58 @@ class ScriptedBroker:
             return self.lost_order
         return self.orders.get(client_order_id)
 
+    # stop_outcomes: one entry per stop placement; "new" (default), "rejected", "unknown", "unknown_lost", "error",
+    # "triggered". exit_outcomes: one per cancel-replace; "ok", "cancel_failed", "new_failed", "new_unknown", "lost".
+    stop_outcomes: list[str]
+    exit_outcomes: list[str]
+
+    def stop_order(self, client_order_id: str, quantity: Decimal, status: str, executed: Decimal | None = None) -> OrderResult:
+        executed = executed if executed is not None else D(0)
+        return OrderResult(
+            client_order_id=client_order_id, exchange_order_id="77", symbol="BTCUSDT", side=Side.SELL, order_type=OrderType.MARKET,
+            status=status, requested_qty=quantity, executed_qty=executed, avg_price=D("97.90") if executed > 0 else None,
+            detail="exchange type=STOP_LOSS",
+        )  # fmt: skip
+
     def place_protective_stop(
         self, *, symbol, quantity, stop_price, filters, client_order_id
     ) -> OrderResult | None:
         self.stops.append({"quantity": quantity, "stop": stop_price, "id": client_order_id})
-        return None
+        outcome = self.stop_outcomes.pop(0) if getattr(self, "stop_outcomes", None) else "new"
+        if outcome == "rejected":
+            raise BinanceAPIError(400, -2010, "Stop price would trigger immediately.")
+        if outcome == "error":
+            return self.stop_order(client_order_id, quantity, "REJECTED")
+        if outcome in ("unknown", "unknown_lost"):
+            if outcome == "unknown":  # it did reach the exchange
+                self.orders[client_order_id] = self.stop_order(client_order_id, quantity, "NEW")
+            raise OrderStateUnknown("timeout placing stop")
+        status, executed = ("FILLED", quantity) if outcome == "triggered" else ("NEW", D(0))
+        self.orders[client_order_id] = self.stop_order(client_order_id, quantity, status, executed)
+        return self.orders[client_order_id]
 
     def cancel(self, symbol: str, client_order_id: str) -> None:
         pass
+
+    def cancel_replace_exit(self, *, symbol, stop_client_order_id, order_type, quantity, limit_price, client_order_id, quote):
+        from trader.exchanges.binance.client import CancelReplaceResult
+
+        self.sent.append(client_order_id)
+        outcome = self.exit_outcomes.pop(0) if getattr(self, "exit_outcomes", None) else "ok"
+        if outcome == "lost":
+            raise OrderStateUnknown("timeout on cancel-replace")
+        stop = self.orders.get(stop_client_order_id)
+        if outcome == "cancel_failed":
+            return CancelReplaceResult("FAILURE", "NOT_ATTEMPTED", None, "cancelResponse: -2011 Unknown order sent.")
+        if stop is not None:
+            self.orders[stop_client_order_id] = stop.model_copy(update={"status": "CANCELED"})
+        if outcome == "new_failed":
+            return CancelReplaceResult("SUCCESS", "FAILURE", None, "newOrderResponse: -2010 insufficient balance")
+        if outcome == "new_unknown":
+            return CancelReplaceResult("SUCCESS", "UNKNOWN", None, "")
+        sold = self.filled(client_order_id, quantity, Side.SELL)
+        self.orders[client_order_id] = sold
+        return CancelReplaceResult("SUCCESS", "SUCCESS", sold, "")
 
 
 def demo_desk(root: Path, source: FakeSource, outcomes: list):
@@ -422,7 +466,8 @@ def test_demo_requires_cli_approval_which_is_single_use_and_parameter_bound(
 
     done = desk.execute_approved_trade(intent_id)
     assert done["status"] == "ok" and broker.sent == [intent["data"]["intent"]["client_order_id"]]
-    assert done["data"]["protective_stop"]["status"] == "placed" and broker.stops[0]["stop"] == D("98.00")
+    assert done["data"]["protective_stop"]["status"] == "PROTECTED" and broker.stops[0]["stop"] == D("98.00")
+    assert desk.execution.positions()[0].protection == "PROTECTED"
     assert D(desk.execution.positions()[0].quantity) == D(intent["data"]["intent"]["quantity"]) - D(
         "0.001"
     )  # fee paid in BTC
@@ -587,3 +632,185 @@ def test_get_open_positions_is_a_pure_read(desk, source: FakeSource) -> None:
     synced = desk.sync_positions()
     assert synced["data"]["settled"] and synced["data"]["settled"][0]["exit_reason"] == "stop"
     assert synced["data"]["positions"] == []
+
+
+# ----------------------------------------------------------------------------- protective stops (exchange modes)
+
+
+def demo_position(root: Path, source: FakeSource, stop_outcomes: list[str] | None = None, exit_outcomes: list[str] | None = None):
+    """Open a BINANCE_DEMO long through the full intent -> CLI approval -> execute path."""
+    desk, broker = demo_desk(root, source, ["fill"])
+    broker.stop_outcomes = list(stop_outcomes or [])
+    broker.exit_outcomes = list(exit_outcomes or [])
+    intent_id = open_long(desk)["data"]["intent"]["intent_id"]
+    desk.execution.record_cli_approval(intent_id)
+    result = desk.execute_approved_trade(intent_id)
+    return desk, broker, intent_id, result
+
+
+def sell_intent(desk, key: str, size_scale: str | None = None) -> str:
+    decision = desk.record_decision_report({**decision_payload(desk), "decision": "EXIT_REVIEW"})
+    created = desk.create_trade_intent(
+        decision_id=decision["data"]["decision_id"], symbol="BTCUSDT", side="SELL", stop_price=None, size_scale=size_scale,
+        rationale="exit the demo position in this test case", idempotency_key=key,
+    )  # fmt: skip
+    assert created["status"] == "ok", created
+    intent_id = created["data"]["intent"]["intent_id"]
+    desk.execution.record_cli_approval(intent_id)
+    return intent_id
+
+
+def protection(desk) -> str:
+    return desk.execution.positions()[0].protection
+
+
+@pytest.mark.parametrize("outcome", ["rejected", "error"])
+def test_failed_stop_engages_kill_switch_and_blocks_entries(repo_copy: Path, source: FakeSource, outcome: str) -> None:
+    desk, broker, _, result = demo_position(repo_copy, source, stop_outcomes=[outcome])
+    assert result["status"] == "error" and result["data"]["intent_status"] == "FILLED"
+    assert any("NOT PROTECTED" in w for w in result["warnings"])
+    assert protection(desk) == "UNPROTECTED"
+    kill = desk.execution.kill_switch()
+    assert kill["engaged"] and kill["by"] == "system" and "BTCUSDT" in kill["reason"]
+    blocked = open_long(desk, symbol="ETHUSDT", key="after-stop-fail")
+    assert {"all_positions_protected", "kill_switch_clear"} <= failed_names(blocked)
+
+    restored = desk.protect_position("BTCUSDT")  # allowed under the kill switch: it only reduces risk
+    assert restored["status"] == "ok" and restored["data"]["status"] == "PROTECTED"
+    assert protection(desk) == "PROTECTED" and broker.stops[-1]["id"].endswith("-s2")
+    assert desk.execution.kill_switch()["engaged"]  # releasing stays a human-only CLI action
+
+
+def test_stop_not_supported_by_symbol_is_never_sent(repo_copy: Path, source: FakeSource) -> None:
+    source.order_types = ["LIMIT", "MARKET", "STOP_LOSS_LIMIT"]
+    desk, broker, _, result = demo_position(repo_copy, source)
+    assert broker.stops == [] and protection(desk) == "UNPROTECTED" and result["status"] == "error"
+
+
+def test_unknown_stop_that_reached_the_exchange_is_confirmed_not_duplicated(repo_copy: Path, source: FakeSource) -> None:
+    desk, broker, _, result = demo_position(repo_copy, source, stop_outcomes=["unknown"])
+    assert protection(desk) == "UNKNOWN" and result["status"] == "error"
+    assert desk.execution.kill_switch()["engaged"]
+    synced = desk.sync_positions()["data"]["settled"]
+    assert synced[0]["status"] == "protected" and protection(desk) == "PROTECTED"
+    assert len(broker.stops) == 1  # reconciled by client id, never placed twice
+    assert desk.protect_position("BTCUSDT")["data"]["status"] == "PROTECTED" and len(broker.stops) == 1
+
+
+def test_unknown_stop_that_never_arrived_becomes_unprotected_after_grace(
+    repo_copy: Path, source: FakeSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    desk, broker, _, _ = demo_position(repo_copy, source, stop_outcomes=["unknown_lost"])
+    assert desk.sync_positions()["data"]["settled"][0]["status"] == "still_unknown"
+    # refuses to stack a second stop while the first is still unknown
+    assert desk.protect_position("BTCUSDT")["data"]["status"] == "UNKNOWN" and len(broker.stops) == 1
+    import trader.execution as execution
+
+    real_now = execution.utc_now
+    monkeypatch.setattr(execution, "utc_now", lambda: real_now() + timedelta(seconds=45))
+    assert desk.sync_positions()["data"]["settled"][0]["status"] == "unprotected"
+    assert protection(desk) == "UNPROTECTED"
+    monkeypatch.setattr(execution, "utc_now", real_now)
+    assert desk.protect_position("BTCUSDT")["data"]["status"] == "PROTECTED" and len(broker.stops) == 2
+
+
+def test_protect_refuses_when_price_is_already_below_the_stop(repo_copy: Path, source: FakeSource) -> None:
+    desk, broker, _, _ = demo_position(repo_copy, source, stop_outcomes=["rejected"])
+    source.bid, source.ask = D("97.00"), D("97.01")
+    refused = desk.protect_position("BTCUSDT")
+    assert refused["status"] == "error" and "SELL intent" in refused["data"]["detail"] and len(broker.stops) == 1
+
+
+def test_stop_that_triggers_on_placement_is_settled_once(repo_copy: Path, source: FakeSource) -> None:
+    desk, _, intent_id, result = demo_position(repo_copy, source, stop_outcomes=["triggered"])
+    assert result["data"]["protective_stop"]["status"] == "TRIGGERED"
+    assert desk.execution.positions() == []
+    closed = desk.execution.closed_trades()
+    assert len(closed) == 1 and closed[0]["exit_reason"] == "stop" and D(closed[0]["avg_exit"]) == D("97.90")
+    assert desk.sync_positions()["data"]["settled"] == []  # nothing left to settle twice
+    assert desk.trade_case(intent_id)["data"]["outcome"]["result"] == "loss"
+
+
+def test_partial_stop_fills_apply_only_the_new_quantity(repo_copy: Path, source: FakeSource) -> None:
+    desk, broker, _, _ = demo_position(repo_copy, source)
+    held = desk.execution.positions()[0].quantity
+    stop_id = desk.execution.positions()[0].stop_client_order_id
+    half = (held / 2).quantize(D("0.001"))
+    broker.orders[stop_id] = broker.stop_order(stop_id, held, "PARTIALLY_FILLED", half)
+    first = desk.sync_positions()["data"]["settled"][0]
+    assert first["status"] == "partially_closed" and D(first["quantity"]) == half and first["fee_basis"] == "estimated"
+    assert desk.sync_positions()["data"]["settled"] == []  # the same cumulative fill is not applied again
+    broker.orders[stop_id] = broker.stop_order(stop_id, held, "FILLED", held)
+    second = desk.sync_positions()["data"]["settled"][0]
+    assert second["status"] == "closed" and D(second["quantity"]) == held - half
+    closed = desk.execution.closed_trades()
+    assert sum(D(c["quantity"]) for c in closed) == held and desk.execution.positions() == []
+    exit_fee_estimate = held * D("97.90") * desk.execution.fee_rate()
+    entry_fee = D("0.001") * D("100.02")
+    assert sum(D(c["fees"]) for c in closed) == pytest.approx(exit_fee_estimate + entry_fee)  # no double count
+
+
+def test_exit_uses_cancel_replace_and_closes_cleanly(repo_copy: Path, source: FakeSource) -> None:
+    desk, _, _, _ = demo_position(repo_copy, source)
+    stop_id = desk.execution.positions()[0].stop_client_order_id
+    sell_id = sell_intent(desk, "exit-ok-0001")
+    result = desk.execute_approved_trade(sell_id)
+    assert result["status"] == "ok" and result["data"]["closed"]["remaining"] == "0"
+    assert desk.execution.positions() == [] and not desk.execution.kill_switch()["engaged"]
+    assert desk.db.query("SELECT status FROM orders WHERE client_order_id=?", (stop_id,))[0]["status"] == "CANCELED"
+    assert "cancel_replace_result" in [e["event_type"] for e in desk.db.journal_events(sell_id)]
+
+
+def test_partial_exit_reprotects_the_remainder(repo_copy: Path, source: FakeSource) -> None:
+    desk, broker, _, _ = demo_position(repo_copy, source)
+    held = desk.execution.positions()[0].quantity
+    result = desk.execute_approved_trade(sell_intent(desk, "exit-half-01", size_scale="0.5"))
+    assert result["status"] == "ok" and result["data"]["protective_stop"]["status"] == "PROTECTED"
+    position = desk.execution.positions()[0]
+    assert position.protection == "PROTECTED" and position.quantity < held
+    assert broker.stops[-1]["quantity"] == position.quantity and broker.stops[-1]["id"].endswith("-s2")
+    assert not desk.execution.kill_switch()["engaged"]
+
+
+def test_exit_when_stop_already_filled_sends_no_sell(repo_copy: Path, source: FakeSource) -> None:
+    desk, broker, _, _ = demo_position(repo_copy, source, exit_outcomes=["cancel_failed"])
+    position = desk.execution.positions()[0]
+    stop_id = position.stop_client_order_id
+    broker.orders[stop_id] = broker.stop_order(stop_id, position.quantity, "FILLED", position.quantity)
+    sell_id = sell_intent(desk, "exit-race-01")
+    result = desk.execute_approved_trade(sell_id)
+    assert result["status"] == "rejected" and result["data"]["intent_status"] == "FAILED"
+    assert result["data"]["settled"][0]["status"] == "closed"  # the stop fill was settled instead
+    assert desk.execution.positions() == [] and len(desk.execution.closed_trades()) == 1
+    assert desk.db.query("SELECT * FROM orders WHERE intent_id=? AND role='exit'", (sell_id,)) == []
+
+
+def test_exit_order_failure_after_cancel_leaves_position_flagged_and_recoverable(repo_copy: Path, source: FakeSource) -> None:
+    desk, _, _, _ = demo_position(repo_copy, source, exit_outcomes=["new_failed"])
+    result = desk.execute_approved_trade(sell_intent(desk, "exit-fail-01"))
+    assert result["status"] == "error" and result["data"]["intent_status"] == "FAILED"
+    assert "NO PROTECTIVE STOP" in result["data"]["detail"]
+    assert protection(desk) == "UNPROTECTED" and desk.execution.kill_switch()["engaged"]
+    assert desk.protect_position("BTCUSDT")["data"]["status"] == "PROTECTED"
+
+
+def test_lost_cancel_replace_is_never_resent(repo_copy: Path, source: FakeSource) -> None:
+    desk, broker, _, _ = demo_position(repo_copy, source, exit_outcomes=["lost"])
+    sell_id = sell_intent(desk, "exit-lost-01")
+    sends_before = len(broker.sent)
+    result = desk.execute_approved_trade(sell_id)
+    assert result["status"] == "error" and result["data"]["intent_status"] == "UNKNOWN"
+    assert protection(desk) == "UNKNOWN" and desk.execution.kill_switch()["engaged"]
+    assert len(broker.sent) == sends_before + 1
+    again = desk.execute_approved_trade(sell_id)
+    assert again["status"] == "rejected" and len(broker.sent) == sends_before + 1
+    assert "all_positions_protected" in failed_names(open_long(desk, symbol="ETHUSDT", key="while-lost-01"))
+
+
+def test_paper_positions_are_simulated_and_never_block_entries(desk) -> None:
+    intent = open_long(desk)
+    result = desk.execute_approved_trade(intent["data"]["intent"]["intent_id"])
+    assert result["status"] == "ok" and result["data"]["protective_stop"]["status"] == "simulated"
+    assert desk.execution.positions()[0].protection == "SIMULATED"
+    assert desk.protect_position("BTCUSDT")["data"]["status"] == "not_applicable"
+    assert "all_positions_protected" not in failed_names(open_long(desk, symbol="ETHUSDT", key="paper-second"))

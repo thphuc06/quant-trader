@@ -268,7 +268,7 @@ def test_trading_client_has_no_generic_or_fund_moving_methods() -> None:
         for name, _ in inspect.getmembers(BinanceTradingClient, inspect.isfunction)
         if not name.startswith("_")
     }
-    assert names == {"close", "account", "get_order", "open_orders", "new_order", "cancel_order"}
+    assert names == {"close", "account", "get_order", "open_orders", "new_order", "cancel_order", "cancel_replace"}
     source = inspect.getsource(client_module).lower()
     for forbidden in ("withdraw", "/sapi/", "transfer", "margin", "leverage"):
         assert forbidden not in source.replace("no withdraw/transfer/margin endpoint", "")
@@ -344,3 +344,75 @@ def test_kline_stream_only_accepts_closed_klines() -> None:
         stream_url("wss://s.test:9443", ["BTCUSDT", "ETHUSDT"], "1h")
         == "wss://s.test:9443/stream?streams=btcusdt@kline_1h/ethusdt@kline_1h"
     )
+
+
+# ----------------------------------------------------------------------------- protective stop and cancel-replace
+
+
+def _capturing(response: httpx.Response | Exception, seen: list[httpx.Request]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v3/time":
+            return httpx.Response(200, json={"serverTime": 1_700_000_000_000})
+        seen.append(request)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    return handler
+
+
+def test_protective_stop_is_a_stop_market_order() -> None:
+    from trader.execution import BinanceBroker
+
+    seen: list[httpx.Request] = []
+    body = {"symbol": "BTCUSDT", "orderId": 9, "clientOrderId": "ct-x-s1", "origQty": "0.01", "executedQty": "0", "cummulativeQuoteQty": "0", "status": "NEW", "type": "STOP_LOSS", "side": "SELL"}
+    broker = BinanceBroker(trading(_capturing(httpx.Response(200, json=body), seen)))
+    filters = parse_symbol_filters({**SYMBOL_INFO, "orderTypes": ["LIMIT", "MARKET", "STOP_LOSS"]}, utc_now())
+    placed = broker.place_protective_stop(symbol="BTCUSDT", quantity=Decimal("0.01"), stop_price=Decimal("98000.019"), filters=filters, client_order_id="ct-x-s1")
+    sent = dict(parse_qsl(seen[0].url.query.decode()))
+    assert sent["type"] == "STOP_LOSS" and sent["side"] == "SELL" and sent["stopPrice"] == "98000.01"  # floored to tick
+    assert "price" not in sent and "timeInForce" not in sent  # a market order once triggered
+    assert placed is not None and placed.status == "NEW" and placed.order_type is OrderType.MARKET
+    assert filters.order_types == ["LIMIT", "MARKET", "STOP_LOSS"]
+
+
+def _cancel_replace(response: httpx.Response | Exception, seen: list[httpx.Request] | None = None):
+    return trading(_capturing(response, seen if seen is not None else [])).cancel_replace(
+        symbol="BTCUSDT", cancel_client_order_id="ct-x-s1", side=Side.SELL, order_type="MARKET", quantity=Decimal("0.01"), client_order_id="ct-y"
+    )
+
+
+SOLD = {"symbol": "BTCUSDT", "orderId": 10, "clientOrderId": "ct-y", "origQty": "0.01", "executedQty": "0.01", "cummulativeQuoteQty": "980", "status": "FILLED", "type": "MARKET", "side": "SELL", "fills": []}
+
+
+def test_cancel_replace_request_and_success() -> None:
+    seen: list[httpx.Request] = []
+    ok = httpx.Response(200, json={"cancelResult": "SUCCESS", "newOrderResult": "SUCCESS", "cancelResponse": {"status": "CANCELED"}, "newOrderResponse": SOLD})
+    result = _cancel_replace(ok, seen)
+    sent = dict(parse_qsl(seen[0].url.query.decode()))
+    assert seen[0].method == "POST" and seen[0].url.path.endswith("/order/cancelReplace")
+    assert sent["cancelReplaceMode"] == "STOP_ON_FAILURE" and sent["cancelOrigClientOrderId"] == "ct-x-s1" and sent["newClientOrderId"] == "ct-y"
+    assert (result.cancel_result, result.new_order_result) == ("SUCCESS", "SUCCESS")
+    assert result.new_order is not None and result.new_order.avg_price == Decimal("98000")
+
+
+def test_cancel_replace_documented_failures() -> None:
+    cancel_failed = httpx.Response(400, json={"code": -2022, "msg": "Order cancel-replace failed.", "data": {"cancelResult": "FAILURE", "newOrderResult": "NOT_ATTEMPTED", "cancelResponse": {"code": -2011, "msg": "Unknown order sent."}, "newOrderResponse": None}})
+    result = _cancel_replace(cancel_failed)
+    assert (result.cancel_result, result.new_order_result, result.new_order) == ("FAILURE", "NOT_ATTEMPTED", None)
+    assert "-2011" in result.detail
+
+    new_failed = httpx.Response(409, json={"code": -2021, "msg": "Order cancel-replace partially failed.", "data": {"cancelResult": "SUCCESS", "newOrderResult": "FAILURE", "cancelResponse": {"status": "CANCELED"}, "newOrderResponse": {"code": -2010, "msg": "Account has insufficient balance"}}})
+    result = _cancel_replace(new_failed)
+    assert (result.cancel_result, result.new_order_result) == ("SUCCESS", "FAILURE") and "-2010" in result.detail
+
+
+def test_cancel_replace_unreadable_or_lost_is_unknown_never_retried() -> None:
+    assert _cancel_replace(httpx.Response(400, json={"code": -1, "msg": "weird"})).cancel_result == "UNKNOWN"
+    claimed = _cancel_replace(httpx.Response(200, json={"cancelResult": "SUCCESS", "newOrderResult": "SUCCESS", "newOrderResponse": {}}))
+    assert claimed.new_order_result == "UNKNOWN"  # success without an order body is not trusted
+    for failure in (httpx.Response(503), httpx.ReadTimeout("t")):
+        seen: list[httpx.Request] = []
+        with pytest.raises(OrderStateUnknown):
+            _cancel_replace(failure, seen)
+        assert len(seen) == 1

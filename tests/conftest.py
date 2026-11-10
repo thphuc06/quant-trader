@@ -77,6 +77,8 @@ class FakeSource:
         self.fail_quote = False
         self.override_klines: dict[str, pd.DataFrame] = {}
         self.calls: list[str] = []
+        # as reported by exchangeInfo for the universe symbols on 2026-11-10
+        self.order_types = ["LIMIT", "LIMIT_MAKER", "MARKET", "STOP_LOSS", "STOP_LOSS_LIMIT", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"]
 
     def klines(
         self,
@@ -125,7 +127,7 @@ class FakeSource:
         return SymbolFilters(
             symbol=symbol, status="TRADING", base_asset=symbol.removesuffix("USDT"), quote_asset="USDT", tick_size=Decimal("0.01"),
             min_price=Decimal("0.01"), max_price=Decimal("1000000"), step_size=Decimal("0.001"), min_qty=Decimal("0.001"),
-            max_qty=Decimal("9000"), min_notional=Decimal("5"), fetched_at=utc_now(),
+            max_qty=Decimal("9000"), min_notional=Decimal("5"), order_types=list(self.order_types), fetched_at=utc_now(),
         )  # fmt: skip
 
     def futures_premium_index(self, symbol: str) -> dict[str, Any]:

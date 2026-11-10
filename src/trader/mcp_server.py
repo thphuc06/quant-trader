@@ -337,6 +337,14 @@ def cancel_trade_intent(intent_id: str, reason: str) -> dict[str, Any]:
 
 
 @mcp.tool(annotations=TRADE)
+def protect_position(symbol: str) -> dict[str, Any]:
+    """Place (again) the exchange protective stop of an open position whose protection is UNPROTECTED or
+    UNKNOWN (sync_positions reports it). Sells nothing; uses the position's recorded stop price. Allowed while
+    the kill switch is engaged because it only reduces risk; it never releases the kill switch."""
+    return _safe("protect_position", lambda: desk().protect_position(symbol))
+
+
+@mcp.tool(annotations=TRADE)
 def activate_kill_switch(reason: str, cancel_pending_entries: bool = False) -> dict[str, Any]:
     """Block all NEW positions immediately. Optionally cancels pending entry intents. Does NOT close positions and does NOT
     cancel protective stops. Cannot be released from here: the operator runs `python -m trader kill-switch release`."""

@@ -258,6 +258,7 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
         "cancel_trade_intent",
         "activate_kill_switch",
         "sync_positions",
+        "protect_position",
     ):
         assert f"mcp__trading__{tool}" in permissions["ask"]
         assert not any(
@@ -289,6 +290,7 @@ def test_settings_and_mcp_config_are_valid_and_least_privilege() -> None:
     # subagents described as read-only must not hold tools that change state
     mutating = {
         "sync_positions",
+        "protect_position",
         "record_decision_report",
         "submit_post_trade_review",
         "create_trade_intent",

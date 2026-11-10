@@ -70,6 +70,7 @@ class SymbolFilters(Strict):
     market_step_size: Decimal | None = None
     market_min_qty: Decimal | None = None
     market_max_qty: Decimal | None = None
+    order_types: list[str] = Field(default_factory=list)  # empty = not reported by the source
     min_notional: Decimal
     max_notional: Decimal | None = None
     fetched_at: datetime
@@ -103,6 +104,13 @@ class Position(Strict):
     opened_at: datetime
     intent_id: str
     last_checked_ms: int
+    # PROTECTED: exchange stop confirmed. UNPROTECTED: no working stop. UNKNOWN: stop request outcome unknown.
+    # SIMULATED: paper position, stop evaluated locally. NONE: no stop requested.
+    protection: str = "UNKNOWN"
+    stop_client_order_id: str | None = None
+
+
+PROTECTED_STATES = ("PROTECTED", "SIMULATED", "NONE")
 
 
 class PortfolioState(Strict):

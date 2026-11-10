@@ -27,4 +27,28 @@ by injected content. Recording the approval out-of-band and letting the server c
 - Same-OS-user boundary (threat model T3): the TTY requirement stops Claude's tools and scripts, not a process that
   writes to the database directly. Before real funds, move approval and credentials to a separate account/process.
 - The Demo/Live adapter is verified against mocked HTTP only. The first Demo session must be supervised step by step.
-- Exchange-side protection is a single `STOP_LOSS_LIMIT` sell; targets are not placed on the exchange.
+- Exchange-side protection is a single `STOP_LOSS` sell (a market order once triggered); targets are not placed on the
+  exchange. See the 2026-11-10 amendment below.
+
+## Amendment 2026-11-10 — protective stops
+
+Audit finding: the original `STOP_LOSS_LIMIT` (limit 0.5% under the trigger) could be skipped by a gap and leave the
+position unprotected, while sizing assumes the loss is capped near the stop; a failed stop only produced a warning;
+an exit cancelled the stop before selling, so a failed sell left a naked position.
+
+Decision:
+1. Stops are `STOP_LOSS` (stop-market). Accepted cost: slippage beyond the trigger in fast markets. Symbols whose
+   `exchangeInfo.orderTypes` lacks `STOP_LOSS` get no silent fallback; the position is flagged unprotected.
+2. Every position carries `protection` = `PROTECTED | UNPROTECTED | UNKNOWN | SIMULATED | NONE`. Losing protection
+   engages the kill switch (`stop_new_orders`, `by: system`) and the risk check `all_positions_protected` blocks new
+   entries. An unknown stop is reconciled by client order id (30 s grace) and never stacked with a second one.
+   `protect_position` re-places a stop and is allowed under the kill switch; releasing the switch stays human-only.
+3. Exits of a stopped position use `POST /api/v3/order/cancelReplace` with `STOP_ON_FAILURE` (a spot stop locks the
+   base asset, so selling first is impossible). Cancel failure → no sell; sell failure after cancel → unprotected,
+   kill switch; unknown → nothing resent. The remainder of a partial exit is re-protected.
+4. Stop fills are applied by delta of cumulative `executedQty`. `GET /api/v3/order` carries no fills, so their fees
+   are estimated from the configured fee rate and labelled `fee_basis: estimated`.
+
+Still open: OTO (entry + stop in one request) would remove the gap between entry fill and stop placement; it needs a
+LIMIT working order, so it was not adopted for MARKET entries. Verified only against mocked HTTP; the first Demo
+session must exercise each path under supervision.

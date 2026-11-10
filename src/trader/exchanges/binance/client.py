@@ -14,6 +14,7 @@ import hmac
 import random
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
@@ -30,11 +31,12 @@ ORDER_NOT_FOUND_CODE = -2013
 
 
 class BinanceAPIError(Exception):
-    def __init__(self, status: int, code: int | None, message: str) -> None:
+    def __init__(self, status: int, code: int | None, message: str, body: dict[str, Any] | None = None) -> None:
         super().__init__(f"Binance API error http={status} code={code}: {message}")
         self.status = status
         self.code = code
         self.message = message
+        self.body = body or {}
 
 
 class RateLimited(BinanceAPIError):
@@ -115,13 +117,15 @@ class _Http:
                     continue
                 raise last_error
             if response.status_code >= 400:
-                code, message = None, response.text[:300]
+                code, message, body = None, response.text[:300], None
                 try:
-                    body = response.json()
-                    code, message = body.get("code"), str(body.get("msg", message))
+                    parsed = response.json()
+                    if isinstance(parsed, dict):
+                        body = parsed
+                        code, message = parsed.get("code"), str(parsed.get("msg", message))
                 except ValueError:
                     pass
-                raise BinanceAPIError(response.status_code, code, message)
+                raise BinanceAPIError(response.status_code, code, message, body)
             return response.json()
         raise RuntimeError("unreachable") from last_error
 
@@ -309,6 +313,81 @@ class BinanceTradingClient:
         params = self._signed_params({"symbol": symbol.upper(), "origClientOrderId": client_order_id})
         return self._http.request("DELETE", "/api/v3/order", params, self._headers(), retry=False)
 
+    def cancel_replace(
+        self,
+        *,
+        symbol: str,
+        cancel_client_order_id: str,
+        side: Side,
+        order_type: str,
+        quantity: Decimal,
+        client_order_id: str,
+        price: Decimal | None = None,
+        time_in_force: str | None = None,
+    ) -> CancelReplaceResult:
+        """Cancel one order and place another: POST /api/v3/order/cancelReplace with STOP_ON_FAILURE.
+
+        Documented outcomes (checked 2026-11-10): 200 both SUCCESS; 400 cancel FAILURE + new NOT_ATTEMPTED;
+        409 cancel SUCCESS + new FAILURE. Anything unparseable, a timeout or a 5xx is UNKNOWN for both legs.
+        """
+        params: dict[str, Any] = {
+            "symbol": symbol.upper(),
+            "cancelReplaceMode": "STOP_ON_FAILURE",
+            "cancelOrigClientOrderId": cancel_client_order_id,
+            "side": side.value,
+            "type": order_type,
+            "quantity": format(quantity, "f"),
+            "newClientOrderId": client_order_id,
+            "newOrderRespType": "FULL",
+        }
+        if price is not None:
+            params["price"] = format(price, "f")
+        if time_in_force is not None:
+            params["timeInForce"] = time_in_force
+        try:
+            data = self._http.request(
+                "POST", "/api/v3/order/cancelReplace", self._signed_params(params), self._headers(), retry=False
+            )
+        except RateLimited:
+            raise
+        except BinanceAPIError as exc:
+            if exc.status >= 500:
+                raise OrderStateUnknown(f"server error {exc.status} on cancel-replace {client_order_id}") from exc
+            nested = exc.body.get("data")
+            return _parse_cancel_replace(nested if isinstance(nested, dict) else {}, str(exc))
+        except httpx.TransportError as exc:
+            raise OrderStateUnknown(
+                f"transport error on cancel-replace {client_order_id}: {type(exc).__name__}"
+            ) from exc
+        return _parse_cancel_replace(data if isinstance(data, dict) else {}, "")
+
+
+@dataclass
+class CancelReplaceResult:
+    cancel_result: str  # SUCCESS | FAILURE | UNKNOWN
+    new_order_result: str  # SUCCESS | FAILURE | NOT_ATTEMPTED | UNKNOWN
+    new_order: OrderResult | None
+    detail: str
+
+
+def _parse_cancel_replace(data: dict[str, Any], error: str) -> CancelReplaceResult:
+    cancel = str(data.get("cancelResult", "UNKNOWN"))
+    new = str(data.get("newOrderResult", "UNKNOWN"))
+    cancel = cancel if cancel in {"SUCCESS", "FAILURE"} else "UNKNOWN"
+    new = new if new in {"SUCCESS", "FAILURE", "NOT_ATTEMPTED"} else "UNKNOWN"
+    response = data.get("newOrderResponse")
+    order = None
+    if new == "SUCCESS" and isinstance(response, dict) and "orderId" in response:
+        order = _parse_order(response)
+    elif new == "SUCCESS":
+        new = "UNKNOWN"  # claimed success without an order body: do not trust it
+    detail = error
+    for key in ("cancelResponse", "newOrderResponse"):
+        value = data.get(key)
+        if isinstance(value, dict) and "msg" in value:
+            detail += f" {key}: {value.get('code')} {value.get('msg')}"
+    return CancelReplaceResult(cancel, new, order, detail.strip())
+
 
 def _parse_order(data: dict[str, Any]) -> OrderResult:
     executed = Decimal(str(data.get("executedQty", "0")))
@@ -333,7 +412,8 @@ def _parse_order(data: dict[str, Any]) -> OrderResult:
         exchange_order_id=str(data["orderId"]) if "orderId" in data else None,
         symbol=str(data.get("symbol", "")),
         side=Side(str(data.get("side", "BUY"))),
-        order_type=OrderType.MARKET if raw_type == "MARKET" else OrderType.LIMIT,
+        # STOP_LOSS executes as a market order once triggered; the raw type stays visible in ``detail``.
+        order_type=OrderType.MARKET if raw_type in ("MARKET", "STOP_LOSS") else OrderType.LIMIT,
         status=raw_status if raw_status in known else "UNKNOWN",  # type: ignore[arg-type]
         requested_qty=Decimal(str(data.get("origQty", "0"))),
         executed_qty=executed,

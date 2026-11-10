@@ -48,6 +48,7 @@ def parse_symbol_filters(symbol_info: dict[str, Any], fetched_at: datetime) -> S
         market_max_qty=positive_or_none(market_lot["maxQty"]) if market_lot else None,
         min_notional=Decimal(notional["minNotional"]),
         max_notional=positive_or_none(max_notional),
+        order_types=[str(t) for t in symbol_info.get("orderTypes", [])],
         fetched_at=fetched_at,
     )
 
