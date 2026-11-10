@@ -257,6 +257,27 @@ def test_stale_candles_block_new_intents(desk, source: FakeSource) -> None:
     assert "candles_fresh" in failed_names(open_long(desk, key="oldbars-key-1"))
 
 
+def test_old_gap_keeps_snapshot_ok_but_recent_gap_degrades_it(desk, source: FakeSource) -> None:
+    """Regression: one missing bar years ago (the 2023-03-24 Binance halt) made every snapshot 'stale' forever."""
+    history = synthetic_candles(3000, "1h").drop(index=100).reset_index(drop=True)  # gap outside the 2400-bar window
+    source.override_klines["1h"] = history
+    desk.market.store.upsert("BTCUSDT", "1h", history)  # like years of ingested history already on disk
+    snapshot = desk.market_snapshot("BTCUSDT")
+    one_hour = snapshot["data"]["timeframes"]["1h"]["data_quality"]
+    assert one_hour["status"] == "ok" and one_hour["historical_gaps"] == 1 and one_hour["notes"]
+    assert snapshot["status"] == "ok", snapshot["warnings"]
+    assert desk.strategy_signals("BTCUSDT")["status"] == "ok"
+    assert all(row["data_quality"] == "ok" for row in desk.market_overview()["data"]["symbols"])
+
+
+def test_recent_gap_is_degraded_not_stale(repo_copy: Path, source: FakeSource) -> None:
+    source.override_klines["1h"] = synthetic_candles(3000, "1h").drop(index=2990).reset_index(drop=True)
+    desk = make_desk(repo_copy, source)
+    snapshot = desk.market_snapshot("BTCUSDT")
+    assert snapshot["status"] == "degraded" and snapshot["data"]["timeframes"]["1h"]["data_quality"]["status"] == "degraded"
+    assert desk.strategy_signals("BTCUSDT")["status"] == "degraded"
+
+
 def test_revalidation_at_execution_time_rejects_when_conditions_changed(desk, source: FakeSource) -> None:
     intent = open_long(desk)
     source.bid, source.ask = D("99.00"), D("100.01")  # spread blows out after the intent was approved

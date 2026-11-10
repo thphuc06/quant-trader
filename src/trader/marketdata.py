@@ -106,12 +106,16 @@ class MarketData:
         refresh: bool = True,
         min_bars: int = 500,
         max_staleness_bars: float = 2,
+        window_bars: int | None = None,
     ) -> tuple[pd.DataFrame, QualityReport]:
+        """Latest candles plus a quality report over the ``window_bars`` most recent bars (default ``min_bars``:
+        the history the features need). Call ``check_quality`` directly to audit the whole stored history."""
         now_ms = to_ms(utc_now())
         frame = (
             self.refresh(symbol, interval, min_bars, now_ms) if refresh else self.store.load(symbol, interval)
         )
-        return frame, check_quality(frame, symbol, interval, now_ms, max_staleness_bars)
+        window = window_bars if window_bars is not None else min_bars
+        return frame, check_quality(frame, symbol, interval, now_ms, max_staleness_bars, window_bars=window)
 
     def filters(self, symbol: str, max_age_seconds: float = 3600) -> SymbolFilters:
         cached = self._filters.get(symbol)

@@ -77,10 +77,22 @@ class QualityReport:
     invalid_rows: int
     staleness_bars: float | None
     issues: list[str] = field(default_factory=list)
+    stale: bool = False
+    window_bars: int | None = None  # None: the whole frame was checked
+    historical_gaps: int = 0  # gaps older than the checked window: informational only
+    historical_missing_bars: int = 0
+    notes: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return not self.issues
+
+    @property
+    def status(self) -> str:
+        """stale: the latest closed bar is too old. degraded: problems inside the checked window. ok otherwise."""
+        if self.stale:
+            return "stale"
+        return "degraded" if self.issues else "ok"
 
     def as_dict(self) -> dict:
         return {
@@ -95,56 +107,90 @@ class QualityReport:
             "out_of_order": self.out_of_order,
             "invalid_rows": self.invalid_rows,
             "staleness_bars": self.staleness_bars,
-            "status": "ok" if self.ok else "degraded",
+            "checked_window_bars": self.window_bars,
+            "historical_gaps": self.historical_gaps,
+            "historical_missing_bars": self.historical_missing_bars,
+            "status": self.status,
             "issues": self.issues,
+            "notes": self.notes,
         }
 
 
+def _gap_stats(times: pd.Series, step: int) -> tuple[int, int]:
+    diffs = times.sort_values().drop_duplicates().diff().dropna()
+    gap_mask = diffs > step
+    gaps = int(gap_mask.sum())
+    missing = int(((diffs[gap_mask] // step) - 1).sum()) if gaps else 0
+    return gaps, missing
+
+
 def check_quality(
-    frame: pd.DataFrame, symbol: str, interval: str, now_ms: int | None = None, max_staleness_bars: float = 2
+    frame: pd.DataFrame,
+    symbol: str,
+    interval: str,
+    now_ms: int | None = None,
+    max_staleness_bars: float = 2,
+    window_bars: int | None = None,
 ) -> QualityReport:
-    """Detect gaps, duplicates, disorder, impossible OHLC rows and staleness. Never repairs silently."""
+    """Detect gaps, duplicates, disorder, impossible OHLC rows and staleness. Never repairs silently.
+
+    ``window_bars``: check structural problems only in the most recent bars, i.e. the data the features and
+    signals actually use. Older gaps (for example the 2023-03-24 Binance spot halt, when no candle exists) are
+    reported as historical notes and do not degrade the result. Staleness always uses the latest bar.
+    """
     step = interval_ms(interval)
     issues: list[str] = []
     if frame.empty:
         return QualityReport(symbol, interval, 0, None, None, 0, 0, 0, False, 0, None, ["no data"])
 
-    times = frame["open_time"]
+    windowed = window_bars is not None and len(frame) > window_bars
+    recent = frame.tail(window_bars) if windowed and window_bars is not None else frame
+    times = recent["open_time"]
     duplicates = int(times.duplicated().sum())
     out_of_order = not bool(times.is_monotonic_increasing)
-    diffs = times.sort_values().drop_duplicates().diff().dropna()
-    gap_mask = diffs > step
-    gaps = int(gap_mask.sum())
-    missing = int(((diffs[gap_mask] // step) - 1).sum()) if gaps else 0
+    gaps, missing = _gap_stats(times, step)
+    historical_gaps = historical_missing = 0
+    notes: list[str] = []
+    if windowed:
+        all_gaps, all_missing = _gap_stats(frame["open_time"], step)
+        historical_gaps, historical_missing = all_gaps - gaps, all_missing - missing
+        if historical_gaps:
+            notes.append(
+                f"{historical_gaps} gap(s), {historical_missing} missing bar(s) older than the checked "
+                f"{window_bars}-bar window; they do not affect current features"
+            )
     invalid = int(
         (
-            (frame["high"] < frame["low"])
-            | (frame["high"] < frame[["open", "close"]].max(axis=1))
-            | (frame["low"] > frame[["open", "close"]].min(axis=1))
-            | (frame[["open", "high", "low", "close"]] <= 0).any(axis=1)
-            | (frame["volume"] < 0)
+            (recent["high"] < recent["low"])
+            | (recent["high"] < recent[["open", "close"]].max(axis=1))
+            | (recent["low"] > recent[["open", "close"]].min(axis=1))
+            | (recent[["open", "high", "low", "close"]] <= 0).any(axis=1)
+            | (recent["volume"] < 0)
         ).sum()
     )
     staleness: float | None = None
+    stale = False
     if now_ms is not None:
         last_close = int(frame["close_time"].max())
         staleness = max(0.0, (now_ms - last_close) / step)
         if staleness > max_staleness_bars:
+            stale = True
             issues.append(f"stale: last closed bar is {staleness:.1f} bars old (limit {max_staleness_bars})")
     if duplicates:
         issues.append(f"{duplicates} duplicate open_time values")
     if out_of_order:
         issues.append("rows out of order")
     if gaps:
-        issues.append(f"{gaps} gaps, {missing} missing bars")
+        scope = f" in the last {len(recent)} bars" if windowed else ""
+        issues.append(f"{gaps} gaps, {missing} missing bars{scope}")
     if invalid:
         issues.append(f"{invalid} rows with impossible OHLCV values")
     return QualityReport(
         symbol,
         interval,
         len(frame),
-        int(times.min()),
-        int(times.max()),
+        int(frame["open_time"].min()),
+        int(frame["open_time"].max()),
         gaps,
         missing,
         duplicates,
@@ -152,6 +198,11 @@ def check_quality(
         invalid,
         staleness,
         issues,
+        stale=stale,
+        window_bars=window_bars if windowed else None,
+        historical_gaps=historical_gaps,
+        historical_missing_bars=historical_missing,
+        notes=notes,
     )
 
 

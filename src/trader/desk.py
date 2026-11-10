@@ -42,6 +42,18 @@ from trader.timeutil import from_ms, iso, utc_now
 Envelope = dict[str, Any]
 
 
+STATUS_SEVERITY = {"ok": 0, "degraded": 1, "stale": 2, "unavailable": 3}
+
+
+def worst_status(statuses: list[str]) -> str:
+    """Envelope status for several data sources: the most severe one wins.
+
+    ok < degraded (values are real but the window they were computed from has problems) < stale (the latest
+    bar is too old to describe the market now) < unavailable.
+    """
+    return max(statuses, key=lambda s: STATUS_SEVERITY.get(s, 3), default="ok")
+
+
 def _clean(value: Any) -> Any:
     """Round floats and turn NaN/inf into None so numbers are never silently invented or malformed."""
     if isinstance(value, float):
@@ -172,7 +184,8 @@ class TradingDesk:
 
     # ------------------------------------------------------------------ market
 
-    def _timeframe_view(self, symbol: str, interval: str) -> tuple[dict[str, Any], pd.DataFrame, bool]:
+    def _timeframe_view(self, symbol: str, interval: str) -> tuple[dict[str, Any], pd.DataFrame, str]:
+        """(view, candles, quality status: ok | degraded | stale)."""
         policy_staleness = 2.0
         try:
             policy_staleness = float(self.execution.policy().policy.max_candle_staleness_bars)
@@ -185,7 +198,7 @@ class TradingDesk:
             return (
                 {"interval": interval, "data_quality": quality.as_dict(), "features": None, "regime": None},
                 candles,
-                False,
+                "degraded",
             )
         features = compute_features(candles, interval, self.app.feature_params(interval))
         last = features.iloc[-1]
@@ -199,7 +212,7 @@ class TradingDesk:
             "regime": classify_regime(last),
             "data_quality": quality.as_dict(),
         }
-        return view, candles, quality.ok
+        return view, candles, quality.status
 
     def _signals(self, symbol: str, candles: pd.DataFrame, interval: str) -> list[dict[str, Any]]:
         out = []
@@ -241,16 +254,22 @@ class TradingDesk:
 
     def market_overview(self) -> Envelope:
         rows, warnings = [], []
+        statuses: list[str] = []
         for symbol in self.app.symbols:
             try:
                 quote = self.market.source.quote(symbol)
                 ticker = self.market.source.ticker_24h(symbol)
-                view, candles, ok = self._timeframe_view(symbol, self.app.decision_timeframe)
+                view, candles, quality_status = self._timeframe_view(symbol, self.app.decision_timeframe)
+                ok = quality_status == "ok"
+                statuses.append(quality_status)
                 context = {}
                 for interval in self.app.context_timeframes:
-                    ctx_view, _, ctx_ok = self._timeframe_view(symbol, interval)
+                    ctx_view, _, ctx_status = self._timeframe_view(symbol, interval)
+                    statuses.append(ctx_status)
                     context[interval] = (
-                        (ctx_view["regime"] or {}).get("label", "unknown") if ctx_ok else "data_degraded"
+                        (ctx_view["regime"] or {}).get("label", "unknown")
+                        if ctx_status == "ok"
+                        else f"data_{ctx_status}"
                     )
                 signals = (
                     self._signals(symbol, candles, self.app.decision_timeframe) if not candles.empty else []
@@ -267,7 +286,7 @@ class TradingDesk:
                         ),
                         "regime_context": context,
                         "signals": {s["strategy"]: s["target_position"] for s in signals},
-                        "data_quality": "ok" if ok else "degraded",
+                        "data_quality": quality_status,
                     }
                 )
                 if not ok:
@@ -275,11 +294,11 @@ class TradingDesk:
             except Exception as exc:
                 rows.append({"symbol": symbol, "status": "unavailable", "detail": type(exc).__name__})
                 warnings.append(f"{symbol}: market data unavailable ({type(exc).__name__})")
-        status = (
-            "ok"
-            if not warnings
-            else ("unavailable" if all(r.get("status") == "unavailable" for r in rows) else "stale")
-        )
+                statuses.append("unavailable")
+        if rows and all(r.get("status") == "unavailable" for r in rows):
+            status = "unavailable"
+        else:
+            status = worst_status(statuses)
         note = "Signals come from unvalidated baseline strategies unless get_strategy_signals says otherwise."
         return self._envelope(
             "get_market_overview", {}, {"symbols": rows, "note": note}, status=status, warnings=warnings
@@ -299,11 +318,12 @@ class TradingDesk:
                 {"reason": f"quote unavailable: {type(exc).__name__}"},
                 status="unavailable",
             )
-        views, all_ok, decision_candles = {}, True, pd.DataFrame()
+        views, statuses, decision_candles = {}, [], pd.DataFrame()
         for interval in [self.app.decision_timeframe, *self.app.context_timeframes]:
-            view, candles, ok = self._timeframe_view(symbol, interval)
+            view, candles, quality_status = self._timeframe_view(symbol, interval)
             views[interval] = view
-            all_ok &= ok
+            statuses.append(quality_status)
+            ok = quality_status == "ok"
             if interval == self.app.decision_timeframe:
                 decision_candles = candles
             if not ok:
@@ -331,7 +351,7 @@ class TradingDesk:
             "kinds": "quote/stats/features are observed facts computed by code; regime and signals are rule outputs (model estimates), not forecasts",
         }
         return self._envelope(
-            "get_market_snapshot", args, data, status="ok" if all_ok else "stale", warnings=warnings
+            "get_market_snapshot", args, data, status=worst_status(statuses), warnings=warnings
         )
 
     def ohlcv(self, symbol: str, interval: str, limit: int = 100) -> Envelope:
@@ -364,9 +384,7 @@ class TradingDesk:
             "rows": rows,
             "data_quality": quality.as_dict(),
         }
-        return self._envelope(
-            "get_ohlcv", args, data, status="ok" if quality.ok else "stale", warnings=list(quality.issues)
-        )
+        return self._envelope("get_ohlcv", args, data, status=quality.status, warnings=list(quality.issues))
 
     def derivatives_snapshot(self, symbol: str) -> Envelope:
         symbol = self._check_symbol(symbol)
@@ -414,7 +432,7 @@ class TradingDesk:
             "get_strategy_signals",
             {"symbol": symbol},
             data,
-            status="ok" if quality.ok else "stale",
+            status=quality.status,
             warnings=list(quality.issues),
         )
 
@@ -970,10 +988,14 @@ class TradingDesk:
         try:
             result = self.execution.protect_position(symbol)
         except ExecutionError as exc:
-            return self._envelope("protect_position", {"symbol": symbol}, {"reason": str(exc)}, status="rejected")
+            return self._envelope(
+                "protect_position", {"symbol": symbol}, {"reason": str(exc)}, status="rejected"
+            )
         ok = result.get("status") in {"PROTECTED", "not_applicable", "closed"}
         warnings = [] if ok else ["The position is still not protected. Tell the operator."]
-        return self._envelope("protect_position", {"symbol": symbol}, result, status="ok" if ok else "error", warnings=warnings)
+        return self._envelope(
+            "protect_position", {"symbol": symbol}, result, status="ok" if ok else "error", warnings=warnings
+        )
 
     def activate_kill_switch(self, reason: str, cancel_pending_entries: bool = False) -> Envelope:
         state = self.execution.engage_kill_switch(

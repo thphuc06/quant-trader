@@ -14,6 +14,9 @@ Rules:
 - Only cite `evidence_id`s that a tool returned in this session. The backend rejects reports citing unknown ids.
 - A result with status `stale`, `unavailable`, `rejected` or `error` is not a fact. Report the status; do not fill in
   numbers.
+- `degraded` means the values are real but the recent window behind them has gaps or bad rows (see
+  `data_quality.issues`): use them, say so, and lower confidence. Gaps listed only under `data_quality.notes` are
+  older than that window (e.g. the 2023-03-24 Binance halt) and do not affect current features.
 - Overlapping features (e.g. `ema_spread` and `tsmom`) are one piece of evidence, not two.
 - Knowledge documents below `reviewed` are hypotheses, never rules.
 - A news claim that would change a decision needs one primary source or two independent reputable ones. Otherwise it

@@ -230,3 +230,39 @@ def test_schema_v1_database_is_upgraded_in_place(tmp_path: Path) -> None:
     assert db.schema_version() == 2
     row = db.query("SELECT * FROM positions")[0]
     assert row["quantity"] == "0.5" and row["protection"] == "UNKNOWN" and row["stop_client_order_id"] is None
+
+
+HALT_BAR_MS = 1679662800000  # 2023-03-24T13:00:00Z: Binance spot halted; no 1h candle exists for this hour
+
+
+def history_with_halt_gap() -> tuple:
+    """Five years of 1h candles up to now, missing exactly the 2023-03-24 13:00 UTC bar like the real data."""
+    frame = synthetic_candles(44_000, "1h")
+    assert frame["open_time"].min() < HALT_BAR_MS < frame["open_time"].max()
+    frame = frame[frame["open_time"] != HALT_BAR_MS].reset_index(drop=True)
+    now = int(frame["close_time"].iloc[-1]) + 1_800_000  # half a bar after the last close
+    return frame, now
+
+
+def test_historical_gap_outside_feature_window_does_not_degrade() -> None:
+    frame, now = history_with_halt_gap()
+    whole = check_quality(frame, "BTCUSDT", "1h", now)  # research audit of the full history still sees it
+    assert whole.gaps == 1 and whole.status == "degraded"
+    live = check_quality(frame, "BTCUSDT", "1h", now, window_bars=2400)
+    assert live.status == "ok" and live.ok and not live.stale
+    assert (live.gaps, live.historical_gaps, live.historical_missing_bars) == (0, 1, 1)
+    assert live.as_dict()["status"] == "ok" and "older than the checked 2400-bar window" in live.notes[0]
+    assert live.rows == len(frame) and live.first_open_time == int(frame["open_time"].min())
+
+
+def test_gap_inside_window_is_degraded_and_old_data_is_stale() -> None:
+    frame, now = history_with_halt_gap()
+    recent_gap = frame.drop(index=frame.index[-10]).reset_index(drop=True)
+    report = check_quality(recent_gap, "BTCUSDT", "1h", now, window_bars=2400)
+    assert report.status == "degraded" and not report.stale and report.gaps == 1
+    assert "in the last 2400 bars" in report.issues[0] and report.historical_gaps == 1
+    old = check_quality(frame, "BTCUSDT", "1h", now + 5 * 3_600_000, window_bars=2400)
+    assert old.status == "stale" and old.stale and old.issues[0].startswith("stale:")
+    broken = frame.copy()
+    broken.loc[broken.index[-3], "high"] = broken.loc[broken.index[-3], "low"] / 2
+    assert check_quality(broken, "BTCUSDT", "1h", now, window_bars=2400).status == "degraded"

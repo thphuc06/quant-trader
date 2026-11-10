@@ -93,7 +93,7 @@ hide the quantitative evidence from the reasoning that uses it.
 ### Tool design rules adopted
 
 1. A few task-shaped tools instead of one per indicator (`get_market_snapshot` returns features, regime and signals together).
-2. Every result uses one envelope: `status` (`ok | unavailable | stale | rejected | error`), `as_of` (UTC), `evidence_id`, `data`, `warnings`.
+2. Every result uses one envelope: `status` (`ok | degraded | stale | unavailable | rejected | error`), `as_of` (UTC), `evidence_id`, `data`, `warnings`.
 3. `evidence_id` is stored server-side; a decision report may only cite IDs that exist, which stops invented evidence.
 4. Mutating tools take an `idempotency_key`; none accepts a quantity, a raw order payload, or a URL to an exchange.
 5. Web content is returned inside a field marked `untrusted_content: true` with instruction-like phrases flagged.
