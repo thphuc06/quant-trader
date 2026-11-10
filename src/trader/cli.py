@@ -114,11 +114,43 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "hook scripts compile",
             lambda: f"{len([compile(h.read_text(encoding='utf-8'), str(h), 'exec') for h in hooks])} hooks",
         )
+    if "d" in desk_box:
+        d = desk_box["d"]
+
+        def demo_credentials() -> str:
+            """Configuration only; never prints a key, secret or key-file path."""
+            problem = d.settings.credentials_problem(TradingMode.BINANCE_DEMO)
+            in_demo = d.settings.trading_mode is TradingMode.BINANCE_DEMO
+            if problem is not None:
+                if in_demo:
+                    raise RuntimeError(problem)
+                return f"not configured ({problem}); not needed in {d.settings.trading_mode.value}"
+            creds = d.settings.credentials_for(TradingMode.BINANCE_DEMO)
+            assert creds is not None
+            unused = "" if in_demo else f"; unused because TRADING_MODE={d.settings.trading_mode.value}"
+            return f"configured, signing={creds.method}{unused}"
+
+        check("binance demo credentials", demo_credentials)
     if args.network and "d" in desk_box:
         check(
             "binance public market data",
             lambda: f"BTCUSDT mid {desk_box['d'].market.source.quote('BTCUSDT').mid}",
         )
+        if desk_box["d"].settings.trading_mode is TradingMode.BINANCE_DEMO:
+
+            def demo_signed_read() -> str:
+                """One read-only signed call (account). Places no order; prints no balances or keys."""
+                broker = desk_box["d"].execution.broker()
+                account = broker.client.account()  # type: ignore[attr-defined]
+                held = sum(
+                    1 for b in account.get("balances", []) if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0
+                )
+                return (
+                    f"accepted: accountType={account.get('accountType')} canTrade={account.get('canTrade')} "
+                    f"assets_with_balance={held}"
+                )
+
+            check("binance demo signed read", demo_signed_read)
     width = max(len(name) for name, _, _ in checks)
     for name, ok, detail in checks:
         print(f"[{'ok' if ok else 'FAIL'}] {name.ljust(width)}  {detail}")

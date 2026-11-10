@@ -51,6 +51,11 @@ Deliberately **not** implemented: withdraw, transfer, margin, sub-account, lever
   signature is base64-encoded and sent percent-encoded (Spot request-security docs; Binance.US docs state the
   percent-encoding explicitly for REST). Verified only with locally generated keys against mocked HTTP. **Not yet
   verified:** whether the Demo portal offers the "self-generated" key type, and a real signed call.
+- 2026-11-11 (later): verified. The Demo portal accepted a self-generated Ed25519 public key, and
+  `trader doctor --network` made a real signed read-only account call to `demo-api.binance.com`: accepted,
+  `accountType=SPOT`, `canTrade=true`. No order has been placed yet.
+- Observation: on the Demo portal the "system generated" (HMAC) flow did not display the secret after creation for
+  this operator (browser retries did not help); the self-generated Ed25519 route avoids that step entirely.
 
 ## Rate limits and failure handling
 
