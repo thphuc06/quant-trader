@@ -89,6 +89,40 @@ def block_bootstrap_ci(
     return float(lo), float(hi)
 
 
+def paired_sharpe_difference_ci(
+    baseline: np.ndarray,
+    challenger: np.ndarray,
+    periods_per_year: float,
+    block: int = 24,
+    n_boot: int = 1000,
+    ci: float = 0.90,
+    seed: int = 7,
+) -> tuple[float, float]:
+    """Paired circular-block CI for annualized challenger minus baseline Sharpe."""
+    a, b = np.asarray(baseline, dtype=float), np.asarray(challenger, dtype=float)
+    if a.shape != b.shape:
+        raise ValueError("paired return arrays must have the same shape")
+    valid = np.isfinite(a) & np.isfinite(b)
+    a, b = a[valid], b[valid]
+    n = len(a)
+    if block < 1 or n < block * 4:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    n_blocks = math.ceil(n / block)
+    offsets = np.arange(block)
+    diffs = np.empty(n_boot)
+    for i in range(n_boot):
+        starts = rng.integers(0, n, size=n_blocks)
+        idx = ((starts[:, None] + offsets[None, :]) % n).ravel()[:n]
+        sa, sb = a[idx], b[idx]
+        sda, sdb = sa.std(ddof=1), sb.std(ddof=1)
+        sha = sa.mean() / sda if sda > 0 else 0.0
+        shb = sb.mean() / sdb if sdb > 0 else 0.0
+        diffs[i] = (shb - sha) * math.sqrt(periods_per_year)
+    lo, hi = np.quantile(diffs, [(1 - ci) / 2, 1 - (1 - ci) / 2])
+    return float(lo), float(hi)
+
+
 def pbo_cscv(returns_matrix: np.ndarray, n_splits: int = 10) -> dict[str, Any]:
     """Probability of backtest overfitting.
 
@@ -122,7 +156,13 @@ def pbo_cscv(returns_matrix: np.ndarray, n_splits: int = 10) -> dict[str, Any]:
 
 
 def performance_metrics(
-    returns: pd.Series, in_position: pd.Series, trades: list[Any], periods_per_year: float
+    returns: pd.Series,
+    in_position: pd.Series,
+    trades: list[Any],
+    periods_per_year: float,
+    turnover: pd.Series | None = None,
+    turnover_by_reason: pd.DataFrame | None = None,
+    modeled_costs_by_component_and_reason: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     r = returns.fillna(0.0).to_numpy(dtype=float)
     n = len(r)
@@ -160,7 +200,25 @@ def performance_metrics(
         if n
         else pd.Series(dtype=float)
     )
-    return {
+    daily_cvar_95 = None
+    if len(daily):
+        daily_tail = daily[daily <= daily.quantile(0.05)]
+        daily_cvar_95 = float(daily_tail.mean()) if len(daily_tail) else None
+    max_recovery = 0
+    running_peak = 1.0
+    running_peak_idx = -1
+    underwater_peak_idx: int | None = None
+    for i, value in enumerate(equity):
+        if value >= running_peak:
+            if underwater_peak_idx is not None:
+                max_recovery = max(max_recovery, i - underwater_peak_idx)
+                underwater_peak_idx = None
+            running_peak, running_peak_idx = float(value), i
+        elif underwater_peak_idx is None:
+            underwater_peak_idx = running_peak_idx
+    if underwater_peak_idx is not None:
+        max_recovery = max(max_recovery, len(equity) - 1 - underwater_peak_idx)
+    result: dict[str, Any] = {
         "bars": n,
         "years": round(years, 2),
         "net_total_return": total,
@@ -170,9 +228,14 @@ def performance_metrics(
         "sortino": sortino,
         "max_drawdown": max_dd,
         "max_drawdown_duration_bars": int(longest),
+        "max_drawdown_recovery_bars": int(max_recovery),
         "calmar": (cagr / abs(max_dd)) if cagr is not None and max_dd < 0 else None,
         "worst_day": float(daily.min()) if len(daily) else None,
+        "daily_cvar_95": daily_cvar_95,
         "exposure": float(in_position.mean()) if len(in_position) else 0.0,
+        "turnover_per_year": (
+            float(turnover.fillna(0.0).sum() / years) if turnover is not None and years > 0 else None
+        ),
         "trades": len(closed),
         "trades_per_year": len(closed) / years if years > 0 else None,
         "win_rate": len(wins) / len(closed) if closed else None,
@@ -186,3 +249,28 @@ def performance_metrics(
         "avg_bars_held": float(np.mean([t.bars_held for t in closed])) if closed else None,
         "max_consecutive_losses": worst_streak,
     }
+    if turnover_by_reason is not None and years > 0:
+        reason_totals = turnover_by_reason.fillna(0.0).sum(axis=0)
+        result["turnover_per_year_by_reason"] = {
+            str(reason): float(value / years) for reason, value in reason_totals.items()
+        }
+    if modeled_costs_by_component_and_reason is not None:
+        cost_totals: dict[str, dict[str, float]] = {}
+        for column, value in modeled_costs_by_component_and_reason.fillna(0.0).sum(axis=0).items():
+            component, reason = str(column).split("__", maxsplit=1)
+            cost_totals.setdefault(reason, {})[component] = float(value * 10_000)
+        for components in cost_totals.values():
+            components["total"] = float(sum(components.values()))
+        component_names = sorted(
+            {component for values in cost_totals.values() for component in values if component != "total"}
+        )
+        totals = {
+            component: float(
+                sum(values.get(component, 0.0) for reason, values in cost_totals.items() if reason != "total")
+            )
+            for component in component_names
+        }
+        totals["total"] = float(sum(totals.values()))
+        cost_totals["total"] = totals
+        result["modeled_cost_bps_initial_equity_by_reason"] = cost_totals
+    return result

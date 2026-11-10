@@ -1,0 +1,12 @@
+{
+  "base_strategy": "tsmom_trend_v1",
+  "created_at": "2026-11-10T13:11:03Z",
+  "experiment_id": "exp_47f31c7db7484b7c9f26",
+  "holdout": {
+    "status": "locked"
+  },
+  "kind": "volatility_overlay",
+  "reason": "market data unavailable: ConnectError: [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions",
+  "status": "failed",
+  "symbol": "BNBUSDT"
+}

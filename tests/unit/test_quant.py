@@ -13,16 +13,29 @@ from trader.config import CostConfig
 from trader.quant import ml
 from trader.quant.backtest import run_backtest
 from trader.quant.features import FEATURE_NAMES, FEATURE_REGISTRY, atr, classify_regime, compute_features, rsi
-from trader.quant.research import ExperimentRegistry, evaluate_strategy
+from trader.quant.research import (
+    ExperimentRegistry,
+    evaluate_strategy,
+    evaluate_volatility_overlay,
+    record_volatility_overlay_family,
+)
 from trader.quant.stats import (
     block_bootstrap_ci,
     deflated_sharpe_ratio,
     expected_max_sharpe,
+    paired_sharpe_difference_ci,
     pbo_cscv,
     performance_metrics,
     probabilistic_sharpe_ratio,
 )
-from trader.quant.strategies import STRATEGIES, StrategySignal, donchian_breakout_v1, tsmom_trend_v1
+from trader.quant.strategies import (
+    STRATEGIES,
+    StrategySignal,
+    daily_rebalance_volatility_signal,
+    donchian_breakout_v1,
+    tsmom_trend_v1,
+    volatility_scaled_signal,
+)
 
 SMALL = {
     "ema_fast": 5,
@@ -139,7 +152,7 @@ def test_fills_happen_at_next_open_with_costs_on_both_sides() -> None:
     )
     result = run_backtest(candles, _signal([1, 1, 0, 0]), cost_per_side=0.01)
     # decided at close of bar 0 -> buy at open of bar 1 (100); decided flat at close of bar 2 -> sell at open of bar 3 (121)
-    expected = (1 - 0.01) * (121 / 100) * (1 - 0.01)
+    expected = (121 / 100) * (0.99 / 1.01)
     assert result.equity.iloc[-1] == pytest.approx(expected)
     assert result.equity.iloc[0] == 1.0  # nothing can happen on the signal bar itself
     trade = result.trades[0]
@@ -150,6 +163,166 @@ def test_fills_happen_at_next_open_with_costs_on_both_sides() -> None:
         2,
     )
     assert trade.net_return == pytest.approx(expected - 1)
+
+
+def test_turnover_and_modeled_costs_reconcile_by_event_and_component() -> None:
+    candles = _candles([(100, 101, 99, 100)] * 4)
+    signal = _signal([1.0, 1.0, 0.0, 0.0])
+    components = {"fee": 0.005, "half_spread": 0.003, "slippage": 0.002}
+    result = run_backtest(candles, signal, 0.01, cost_components=components)
+    by_reason = result.turnover_by_reason
+    assert by_reason["baseline_entry"].sum() > 0
+    assert by_reason["baseline_exit"].sum() > 0
+    assert by_reason["overlay_resize"].sum() == 0
+    np.testing.assert_allclose(by_reason.sum(axis=1), result.turnover, rtol=1e-12, atol=1e-12)
+    modeled_cost = result.modeled_costs_by_component_and_reason
+    assert modeled_cost["fee__baseline_entry"].sum() > 0
+    assert modeled_cost["half_spread__baseline_exit"].sum() > 0
+    assert modeled_cost.to_numpy().sum() == pytest.approx(result.modeled_cost_initial_equity)
+    metrics = performance_metrics(
+        result.returns,
+        result.in_position,
+        result.trades,
+        8760,
+        result.turnover,
+        result.turnover_by_reason,
+        result.modeled_costs_by_component_and_reason,
+    )
+    assert metrics["turnover_per_year_by_reason"]["baseline_entry"] > 0
+    costs = metrics["modeled_cost_bps_initial_equity_by_reason"]
+    assert costs["baseline_entry"]["total"] == pytest.approx(
+        costs["baseline_entry"]["fee"]
+        + costs["baseline_entry"]["half_spread"]
+        + costs["baseline_entry"]["slippage"]
+    )
+    assert costs["total"]["total"] == pytest.approx(sum(costs[r]["total"] for r in by_reason.columns))
+    assert costs["total"]["total"] == pytest.approx(result.modeled_cost_initial_equity * 10_000)
+
+    legacy_call = run_backtest(candles, signal, 0.01)
+    assert "all_in__baseline_entry" in legacy_call.modeled_costs_by_component_and_reason
+    with pytest.raises(ValueError, match="sum to cost_per_side"):
+        run_backtest(candles, signal, 0.01, cost_components={"fee": 0.005, "slippage": 0.002})
+
+
+def test_turnover_attributes_stop_touch_gap_and_resize_plus_stop() -> None:
+    touched = _candles(
+        [(100, 100, 100, 100), (100, 101, 99, 100), (100, 100, 97, 99), (99, 99, 99, 99)]
+    )
+    touched_result = run_backtest(touched, _signal([1, 1, 1, 1], stop_mult=2.0), 0.0)
+    assert touched_result.turnover_by_reason["stop_touch"].sum() > 0
+    assert touched_result.turnover_by_reason["stop_gap"].sum() == 0
+
+    gapped = _candles([(100, 100, 100, 100), (100, 101, 99, 100), (95, 96, 94, 95), (95, 96, 94, 95)])
+    gap_result = run_backtest(gapped, _signal([1, 1, 1, 1], stop_mult=2.0), 0.0)
+    assert gap_result.turnover_by_reason["stop_gap"].sum() > 0
+    assert gap_result.turnover_by_reason["stop_touch"].sum() == 0
+
+    resize_and_stop = _candles(
+        [(100, 100, 100, 100), (100, 101, 99, 100), (100, 101, 99, 100), (100, 101, 97, 99)]
+    )
+    combined = run_backtest(
+        resize_and_stop,
+        _signal([0.5, 0.5, 0.25, 0.25], stop_mult=2.0),
+        0.0,
+    )
+    assert combined.turnover_by_reason["overlay_resize"].sum() > 0
+    assert combined.turnover_by_reason["stop_touch"].sum() > 0
+    np.testing.assert_allclose(combined.turnover_by_reason.sum(axis=1), combined.turnover)
+
+
+def test_flat_signal_exit_takes_precedence_over_intrabar_stop_at_same_open() -> None:
+    candles = _candles([(100, 100, 100, 100), (100, 101, 99, 100), (100, 101, 97, 99)])
+    result = run_backtest(candles, _signal([1.0, 0.0, 0.0], stop_mult=2.0), 0.0)
+    assert result.turnover_by_reason["baseline_exit"].sum() > 0
+    assert result.turnover_by_reason["stop_touch"].sum() == 0
+
+
+def test_fractional_exposure_rebalances_and_charges_costs_on_traded_notional() -> None:
+    candles = _candles([(100, 100, 100, 100)] * 5)
+    result = run_backtest(candles, _signal([0.5, 0.5, 0.25, 0.0, 0.0]), cost_per_side=0.01)
+    assert result.in_position.iloc[1] == pytest.approx(0.5)
+    assert result.in_position.iloc[2] == pytest.approx(0.5)
+    assert result.in_position.iloc[3] == pytest.approx(0.25)
+    assert result.in_position.max() <= 1.0
+    assert result.turnover.iloc[1] == pytest.approx(0.5 / 1.005)
+    assert result.turnover.iloc[2] == pytest.approx(0.0)
+    assert result.turnover.iloc[3] == pytest.approx(0.25 / 0.9975)
+    assert result.turnover.iloc[4] == pytest.approx(0.25)
+    assert result.equity.iloc[-1] < 1.0
+    assert result.trades[0].exit_reason == "signal"
+
+
+def test_no_trade_band_suppresses_small_rebalances_but_flat_signal_exits() -> None:
+    candles = _candles([(100, 100, 100, 100)] * 5)
+    result = run_backtest(candles, _signal([0.5, 0.47, 0.44, 0.0, 0.0]), 0.0, rebalance_band=0.05)
+    assert result.in_position.iloc[1] == pytest.approx(0.5)
+    assert result.turnover.iloc[2] == pytest.approx(0.0)  # 3pp change is inside the 5pp band
+    assert result.in_position.iloc[2] == pytest.approx(0.5)
+    assert result.turnover.iloc[3] == pytest.approx(0.06)  # 6pp change crosses the band
+    assert result.in_position.iloc[3] == pytest.approx(0.44)
+    assert result.in_position.iloc[4] == pytest.approx(0.0)  # flat signal exits immediately
+    assert result.turnover.iloc[4] == pytest.approx(0.44)
+
+    with pytest.raises(ValueError):
+        run_backtest(candles, _signal([0.5] * 5), 0.0, rebalance_band=1.0)
+
+
+def test_daily_rebalance_holds_sizing_until_schedule_and_exits_when_baseline_is_flat() -> None:
+    candles = _candles([(100, 100, 100, 100)] * 6)
+    signal = StrategySignal(
+        "daily",
+        "1",
+        pd.Series([0.5, 0.8, 0.2, 0.3, 0.0, 0.0]),
+        pd.Series([np.nan] * 6),
+        0.0,
+        {},
+        pd.DataFrame(
+            {
+                "base_target": [1.0, 1.0, 1.0, 1.0, 0.0, 0.0],
+                "rebalance_scheduled": [True, False, False, True, False, False],
+            }
+        ),
+    )
+    result = run_backtest(candles, signal, 0.0, rebalance_schedule_column="rebalance_scheduled")
+    assert result.in_position.iloc[1] == pytest.approx(0.5)
+    assert result.in_position.iloc[2] == pytest.approx(0.5)
+    assert result.in_position.iloc[3] == pytest.approx(0.5)
+    assert result.in_position.iloc[4] == pytest.approx(0.3)
+    assert result.in_position.iloc[5] == pytest.approx(0.0)
+
+
+def test_daily_volatility_multiplier_updates_only_at_utc_day_boundary() -> None:
+    candles = _candles([(100, 100, 100, 100)] * 50)
+    base_target = pd.Series(np.ones(50))
+    scaled = StrategySignal(
+        "scaled",
+        "1",
+        base_target,
+        pd.Series([np.nan] * 50),
+        0.0,
+        {},
+        pd.DataFrame(
+            {
+                "base_target": base_target,
+                "realized_volatility": np.r_[np.ones(23), np.full(27, 2.0)],
+                "target_volatility": np.ones(50),
+            }
+        ),
+    )
+    daily = daily_rebalance_volatility_signal(candles, scaled, "1h")
+    assert daily.detail["rebalance_scheduled"].iloc[0]
+    assert daily.detail["rebalance_scheduled"].iloc[23]
+    assert daily.target.iloc[:23].eq(1.0).all()
+    assert daily.target.iloc[23:47].eq(0.5).all()
+    assert daily.target.iloc[47:].eq(0.5).all()
+    future_changed = scaled.detail.copy()
+    future_changed.loc[30:, "realized_volatility"] = 0.25
+    changed = daily_rebalance_volatility_signal(
+        candles,
+        StrategySignal("scaled", "1", base_target, scaled.atr, 0.0, {}, future_changed),
+        "1h",
+    )
+    pd.testing.assert_series_equal(daily.target.iloc[:30], changed.target.iloc[:30])
 
 
 def test_stop_fills_at_stop_or_at_gap_open_and_blocks_reentry() -> None:
@@ -202,6 +375,27 @@ def test_simulator_is_deterministic() -> None:
     assert a.equity.equals(b.equity) and len(a.trades) == len(b.trades)
 
 
+def test_volatility_scaled_signal_is_capped_and_uses_trailing_data_only() -> None:
+    candles = synthetic_candles(1200, seed=31)
+    base = tsmom_trend_v1(candles, None)
+    targets = pd.Series(0.5, index=candles.index)
+    signal = volatility_scaled_signal(candles, base, "1h", targets, lookback_bars=48)
+    assert signal.target.between(0.0, 1.0).all()
+    assert (signal.target <= base.target).all()
+    assert (signal.target.iloc[:48] == 0.0).all()
+
+    changed = candles.copy()
+    changed.loc[700:, ["open", "high", "low", "close"]] *= 3.0
+    changed_signal = volatility_scaled_signal(
+        changed,
+        tsmom_trend_v1(changed, None),
+        "1h",
+        targets,
+        lookback_bars=48,
+    )
+    pd.testing.assert_series_equal(signal.target.iloc[:700], changed_signal.target.iloc[:700])
+
+
 # ----------------------------------------------------------------------------- statistics
 
 
@@ -225,6 +419,20 @@ def test_bootstrap_interval_brackets_zero_for_noise_and_excludes_it_for_drift() 
     lo, _ = block_bootstrap_ci(rng.normal(0.002, 0.01, 4000), n_boot=300)
     assert lo > 0
     assert np.isnan(block_bootstrap_ci(np.zeros(10))[0])
+
+
+def test_paired_sharpe_ci_uses_same_periods_and_reports_metrics() -> None:
+    rng = np.random.default_rng(71)
+    base = rng.normal(0.0, 0.01, 4000)
+    challenger = base + 0.001
+    lo, hi = paired_sharpe_difference_ci(base, challenger, 8760, n_boot=200)
+    assert lo > 0 and hi > lo
+    metrics = performance_metrics(
+        pd.Series(base), pd.Series(np.ones(len(base))), [], 8760, pd.Series(np.full(len(base), 0.1))
+    )
+    assert metrics["daily_cvar_95"] < 0
+    assert metrics["turnover_per_year"] > 0
+    assert metrics["max_drawdown_recovery_bars"] >= 0
 
 
 def test_pbo_is_high_for_noise_and_low_for_a_genuinely_better_configuration() -> None:
@@ -263,6 +471,77 @@ def test_every_run_is_logged_and_holdout_stays_locked(tmp_path: Path) -> None:
     assert unlocked["holdout"]["status"].startswith("UNLOCKED")
     assert registry.get(first["experiment_id"])["strategy"] == "donchian_breakout_v1"
     assert registry.get("../../etc/passwd") is None
+
+
+def test_volatility_overlay_walk_forward_keeps_holdout_locked_and_unread(tmp_path: Path) -> None:
+    candles = synthetic_candles(30_000, seed=19)
+    boundary = pd.to_datetime(int(candles["open_time"].iloc[28_000]), unit="ms").strftime("%Y-%m-%d")
+    registry = ExperimentRegistry(tmp_path / "overlay-exp")
+
+    def evaluate(frame: pd.DataFrame) -> dict:
+        return evaluate_volatility_overlay(
+            frame,
+            symbol="BTCUSDT",
+            interval="1h",
+            base_strategy="tsmom_trend_v1",
+            params={"ema_fast": 24, "ema_slow": 168, "mom_lookback": 168, "atr_stop_mult": 3.0},
+            costs=CostConfig(),
+            holdout_start=boundary,
+            validation={"min_oos_trades": 100, "min_dsr": 0.5},
+            registry=registry,
+            root=tmp_path,
+            daily_rebalance=True,
+            n_boot=50,
+        )
+
+    first = evaluate(candles)
+    poisoned_holdout = candles.copy()
+    poisoned_holdout.loc[28_000:, ["open", "high", "low", "close"]] *= 100.0
+    second = evaluate(poisoned_holdout)
+    assert first["holdout"] == {"status": "locked"}
+    assert first["data"]["holdout_bars"] > 0
+    assert first["walk_forward"]["folds"] >= 4
+    assert first["data"]["oos_end"] < boundary
+    assert first["overlay"]["net_total_return"] == pytest.approx(second["overlay"]["net_total_return"])
+    assert first["hourly_overlay_reference"]["turnover_per_year"] > 0
+    assert first["preregistered_policy_checks"]["exploratory_only_oos_previously_viewed"] is True
+    assert first["params"]["rebalance_interval_hours"] == pytest.approx(24.0)
+    regular_costs = first["overlay"]["modeled_cost_bps_initial_equity_by_reason"]["total"]
+    stressed_costs = first["overlay_at_stressed_costs"]["modeled_cost_bps_initial_equity_by_reason"]["total"]
+    assert stressed_costs["fee"] > regular_costs["fee"]
+    assert stressed_costs["total"] == pytest.approx(
+        stressed_costs["fee"] + stressed_costs["half_spread"] + stressed_costs["slippage"]
+    )
+    assert len(registry.records("volatility_overlay")) == 2
+
+
+def test_overlay_family_registration_counts_every_predeclared_trial(tmp_path: Path) -> None:
+    registry = ExperimentRegistry(tmp_path / "family-exp")
+    registry.record("backtest", {"development": {"sharpe_per_period": 0.01}})
+    results = [
+        {
+            "symbol": symbol,
+            "overlay": {"sharpe_per_period": 0.02},
+            "selection_bias": {},
+            "gates_provisional": {"dsr_at_least_min": True, "another_gate": True},
+            "_oos_returns": np.linspace(-0.01, 0.02, 1000),
+        }
+        for symbol in ("BTCUSDT", "ETHUSDT")
+    ]
+    recorded = record_volatility_overlay_family(results, registry, min_dsr=0.5)
+    assert all(result["selection_bias"]["trials_including_this"] == 3 for result in recorded)
+    assert all("_oos_returns" not in result for result in recorded)
+    assert all("_oos_returns" not in item for item in registry.records("volatility_overlay"))
+
+
+def test_turnover_diagnostic_records_are_excluded_from_trial_count(tmp_path: Path) -> None:
+    registry = ExperimentRegistry(tmp_path / "diagnostic-exp")
+    registry.record("backtest", {"development": {"sharpe_per_period": 0.01}})
+    registry.record(
+        "turnover_attribution",
+        {"diagnostic_only": True, "counts_toward_dsr": False, "overlay": {"sharpe_per_period": 0.9}},
+    )
+    assert registry.trial_sharpes() == [0.01]
 
 
 def test_unknown_strategy_and_short_history_are_rejected(tmp_path: Path) -> None:

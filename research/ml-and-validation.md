@@ -48,7 +48,7 @@ the model, not the market, and is unstable for collinear features.
   than once is no longer a holdout.
 - **Trial accounting**: every backtest/model run appends a record to the experiment registry — failures included — so
   the number of trials is known when DSR is computed.
-- **PSR / DSR** (DSR, literature): implemented in `src/trader/backtest/stats.py`. DSR needs the number of trials and the
+- **PSR / DSR** (DSR, literature): implemented in `src/trader/quant/stats.py`. DSR needs the number of trials and the
   variance of their Sharpe ratios; correlated trials make the effective N smaller than the count, so we report DSR with
   the raw count as a conservative bound and say so.
 - **PBO via CSCV** (PBO, literature): implemented; only meaningful when a *family* of configurations was compared (it
@@ -99,18 +99,22 @@ costs. It is a measuring instrument for coarse hypotheses, not a market simulato
 
 ## 6. Metrics
 
-Grouped by purpose; all implemented in `src/trader/backtest/metrics.py` / `stats.py` unless noted.
+Grouped by purpose; backtest metrics and statistics are implemented in `src/trader/quant/stats.py` unless noted.
 
 - **Return**: net total return; CAGR only when the sample exceeds one year; expectancy per trade, average win/loss,
   payoff ratio, profit factor; trade count, average holding period, exposure time, turnover.
-- **Risk**: max drawdown and its duration; annualized volatility, downside deviation; Sharpe, Sortino, Calmar; worst
-  day; longest losing streak. VaR/ES are deferred — with a few hundred trades the tail estimates would be noise.
-- **Reliability**: PSR, DSR (with trial count), PBO when applicable, bootstrap confidence intervals, in-sample →
-  out-of-sample degradation, number of trials.
+- **Risk**: max drawdown, duration and recovery time; annualized volatility, downside deviation; Sharpe, Sortino,
+  Calmar; worst day; longest losing streak; daily 95% CVaR / expected shortfall. Tail estimates remain noisy on short
+  samples and are descriptive, not standalone gates.
+- **Reliability**: PSR, DSR (with trial count), PBO when applicable, block-bootstrap confidence intervals (including
+  paired Sharpe difference for the volatility overlay), in-sample → out-of-sample degradation, number of trials.
 - **Predictive**: log loss and Brier score against the base rate, expected calibration error and reliability table,
   PR-AUC; ROC-AUC reported but never used as a proxy for profit; net return by predicted-probability bucket.
 - **Execution** (paper/demo only): expected vs realized slippage, fees paid, rejects. Fill rate and latency become
   meaningful once limit orders are used.
+- **Transaction attribution**: per-bar traded notional and modeled cost by signal entry, signal exit, in-position
+  exposure resize, stop touch and gap stop. Fee, half-spread and slippage are allocated to each event by notional;
+  cumulative cost is reported in bps of initial simulated equity. This is a simulator attribution, not measured fills.
 
 ### Thresholds
 

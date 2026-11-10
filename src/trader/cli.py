@@ -164,6 +164,205 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_research_volatility_overlay(args: argparse.Namespace) -> int:
+    from trader.quant.research import evaluate_volatility_overlay, record_volatility_overlay_family
+    from trader.storage.candles import check_quality
+    from trader.timeutil import interval_ms
+
+    desk = TradingDesk()
+    symbols = [args.symbol.upper()] if args.symbol else desk.app.symbols
+    strategies = [args.strategy] if args.strategy else ["tsmom_trend_v1", "donchian_breakout_v1"]
+    failures = 0
+    results = []
+    result_qualities: dict[str, dict] = {}
+    rebalance_band = float(getattr(args, "rebalance_band", 0.0))
+    daily_rebalance = bool(getattr(args, "daily_rebalance", False))
+    for symbol in symbols:
+        try:
+            interval = desk.app.decision_timeframe
+            candles = desk.market.store.load(symbol, interval)
+            if candles.empty:
+                candles = desk.market.backfill(
+                    symbol, interval, int(desk.app.backtest.get("history_days", 1825))
+                )
+            if candles.empty:
+                raise ValueError("no locally stored candles; ingest public data first")
+            quality = check_quality(
+                candles,
+                symbol,
+                interval,
+                now_ms=int(candles["open_time"].max()) + interval_ms(interval),
+            )
+        except Exception as exc:
+            failures += 1
+            for strategy in strategies:
+                experiment_id = desk.registry.record(
+                    "volatility_overlay",
+                    {"status": "failed", "symbol": symbol, "base_strategy": strategy,
+                     "reason": f"market data unavailable: {type(exc).__name__}: {exc}",
+                     "holdout": {"status": "locked"}},
+                )
+                print(f"{symbol} {strategy} [{experiment_id}] failed: market data unavailable")
+            continue
+        for strategy in strategies:
+            try:
+                result = evaluate_volatility_overlay(
+                    candles,
+                    symbol=symbol,
+                    interval=desk.app.decision_timeframe,
+                    base_strategy=strategy,
+                    params=desk.app.strategies.get(strategy, {}),
+                    costs=desk.app.costs,
+                    holdout_start=str(desk.app.backtest["holdout_start"]),
+                    validation=desk.app.validation,
+                    registry=desk.registry,
+                    root=desk.root,
+                    train_days=int(desk.app.ml.get("train_days", 730)),
+                    test_days=int(desk.app.backtest.get("walk_forward_test_days", 90)),
+                    rebalance_band=rebalance_band,
+                    daily_rebalance=daily_rebalance,
+                    data_quality=quality.as_dict(),
+                    record=False,
+                )
+            except Exception as exc:
+                failures += 1
+                experiment_id = desk.registry.record(
+                    "volatility_overlay",
+                    {"status": "failed", "symbol": symbol, "base_strategy": strategy,
+                     "reason": str(exc), "data_quality": quality.as_dict(),
+                     "holdout": {"status": "locked"}},
+                )
+                print(f"{symbol} {strategy} [{experiment_id}] failed: {exc}")
+                continue
+            results.append(result)
+            result_qualities[result["symbol"]] = quality.as_dict()
+    record_volatility_overlay_family(results, desk.registry, float(desk.app.validation.get("min_dsr", 0.5)))
+    for result in results:
+        base, overlay = result["baseline"], result["overlay"]
+        print(
+            f"{result['symbol']} {result['base_strategy']} [{result['experiment_id']}] "
+            f"baseline Sharpe={base['sharpe']} overlay Sharpe={overlay['sharpe']} "
+            f"return={overlay['net_total_return']:.3f} maxDD={overlay['max_drawdown']:.3f} "
+            f"turnover/y={overlay['turnover_per_year']} gates={result['gates_provisional']} "
+            f"data={result_qualities[result['symbol']]['status']}"
+            + (
+                f" policy_turnover_reduction={result['preregistered_policy_checks']['turnover_reduction_fraction']:.1%}"
+                if result.get("preregistered_policy_checks")
+                else ""
+            )
+        )
+    return 1 if failures else 0
+
+
+def cmd_research_volatility_band(args: argparse.Namespace) -> int:
+    """Run the single preregistered 5 percentage-point no-trade band variant."""
+    args.rebalance_band = 0.05
+    return cmd_research_volatility_overlay(args)
+
+
+def cmd_research_volatility_daily(args: argparse.Namespace) -> int:
+    """Run the single preregistered daily volatility-resizing variant."""
+    args.daily_rebalance = True
+    return cmd_research_volatility_overlay(args)
+
+
+def cmd_research_turnover_attribution(args: argparse.Namespace) -> int:
+    """Replay the baseline and hourly volatility overlay as a diagnostic, not a strategy trial."""
+    from trader.quant.research import evaluate_volatility_overlay
+    from trader.storage.candles import check_quality
+    from trader.timeutil import interval_ms
+
+    desk = TradingDesk()
+    symbols = [args.symbol.upper()] if args.symbol else desk.app.symbols
+    strategies = [args.strategy] if args.strategy else ["tsmom_trend_v1", "donchian_breakout_v1"]
+    failures = 0
+    for symbol in symbols:
+        try:
+            interval = desk.app.decision_timeframe
+            candles = desk.market.store.load(symbol, interval)
+            if candles.empty:
+                candles = desk.market.backfill(
+                    symbol, interval, int(desk.app.backtest.get("history_days", 1825))
+                )
+            if candles.empty:
+                raise ValueError("no locally stored candles; ingest public data first")
+            quality = check_quality(
+                candles,
+                symbol,
+                interval,
+                now_ms=int(candles["open_time"].max()) + interval_ms(interval),
+            )
+        except Exception as exc:
+            failures += 1
+            for strategy in strategies:
+                desk.registry.record(
+                    "turnover_attribution",
+                    {
+                        "diagnostic_only": True,
+                        "counts_toward_dsr": False,
+                        "status": "failed",
+                        "symbol": symbol,
+                        "base_strategy": strategy,
+                        "reason": f"market data unavailable: {type(exc).__name__}: {exc}",
+                        "holdout": {"status": "locked"},
+                    },
+                )
+            continue
+        for strategy in strategies:
+            try:
+                result = evaluate_volatility_overlay(
+                    candles,
+                    symbol=symbol,
+                    interval=interval,
+                    base_strategy=strategy,
+                    params=desk.app.strategies.get(strategy, {}),
+                    costs=desk.app.costs,
+                    holdout_start=str(desk.app.backtest["holdout_start"]),
+                    validation=desk.app.validation,
+                    registry=desk.registry,
+                    root=desk.root,
+                    train_days=int(desk.app.ml.get("train_days", 730)),
+                    test_days=int(desk.app.backtest.get("walk_forward_test_days", 90)),
+                    data_quality=quality.as_dict(),
+                    record=False,
+                )
+                result.pop("_oos_returns", None)
+                result.pop("selection_bias", None)
+                result.pop("gates_provisional", None)
+                result.pop("all_gates_passed", None)
+                result.pop("preregistered_policy_checks", None)
+                result.pop("hourly_overlay_reference", None)
+                result.pop("unbanded_overlay_reference", None)
+                result["diagnostic_only"] = True
+                result["counts_toward_dsr"] = False
+                result["diagnostic_kind"] = "turnover_attribution_replay"
+                experiment_id = desk.registry.record("turnover_attribution", result)
+            except Exception as exc:
+                failures += 1
+                experiment_id = desk.registry.record(
+                    "turnover_attribution",
+                    {
+                        "diagnostic_only": True,
+                        "counts_toward_dsr": False,
+                        "status": "failed",
+                        "symbol": symbol,
+                        "base_strategy": strategy,
+                        "reason": str(exc),
+                        "data_quality": quality.as_dict(),
+                        "holdout": {"status": "locked"},
+                    },
+                )
+                print(f"{symbol} {strategy} [{experiment_id}] attribution replay failed: {exc}")
+                continue
+            print(
+                f"{symbol} {strategy} [{experiment_id}] diagnostic only; "
+                f"baseline turnover={result['baseline']['turnover_per_year_by_reason']} "
+                f"overlay turnover={result['overlay']['turnover_per_year_by_reason']} "
+                f"holdout={result['holdout']['status']}"
+            )
+    return 1 if failures else 0
+
+
 def cmd_pbo(args: argparse.Namespace) -> int:
     """Probability of backtest overfitting over a small, pre-declared parameter family."""
     from trader.quant.backtest import run_backtest
@@ -407,6 +606,38 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--symbol")
     p.add_argument("--unlock-holdout", action="store_true")
     p.set_defaults(fn=cmd_backtest)
+
+    p = sub.add_parser(
+        "research-volatility-overlay",
+        help="evaluate 30-day volatility-scaled baseline strategies with rolling walk-forward folds",
+    )
+    p.add_argument("--symbol")
+    p.add_argument("--strategy", choices=["tsmom_trend_v1", "donchian_breakout_v1"])
+    p.set_defaults(fn=cmd_research_volatility_overlay)
+
+    p = sub.add_parser(
+        "research-volatility-band",
+        help="run the preregistered volatility target with a fixed 5 percentage-point no-trade band",
+    )
+    p.add_argument("--symbol")
+    p.add_argument("--strategy", choices=["tsmom_trend_v1", "donchian_breakout_v1"])
+    p.set_defaults(fn=cmd_research_volatility_band)
+
+    p = sub.add_parser(
+        "research-volatility-daily",
+        help="run the preregistered daily-only volatility resizing variant",
+    )
+    p.add_argument("--symbol")
+    p.add_argument("--strategy", choices=["tsmom_trend_v1", "donchian_breakout_v1"])
+    p.set_defaults(fn=cmd_research_volatility_daily)
+
+    p = sub.add_parser(
+        "research-turnover-attribution",
+        help="replay baseline and hourly volatility overlay with turnover/cost attribution; not a DSR trial",
+    )
+    p.add_argument("--symbol")
+    p.add_argument("--strategy", choices=["tsmom_trend_v1", "donchian_breakout_v1"])
+    p.set_defaults(fn=cmd_research_turnover_attribution)
 
     p = sub.add_parser("pbo", help="probability of backtest overfitting over a fixed parameter family")
     p.add_argument("strategy")

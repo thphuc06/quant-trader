@@ -1,0 +1,531 @@
+{
+  "all_gates_passed": false,
+  "base_strategy": "donchian_breakout_v1",
+  "baseline": {
+    "annualized_volatility": 0.30772560989911457,
+    "avg_bars_held": 72.140625,
+    "avg_loss": -0.02529291986339186,
+    "avg_win": 0.11748212905411637,
+    "bars": 17506,
+    "cagr": 0.20426711092370886,
+    "calmar": 0.6282228118656318,
+    "daily_cvar_95": -0.03519728375641481,
+    "expectancy_per_trade": 0.008169982226649133,
+    "exposure": 0.2642522563692448,
+    "max_consecutive_losses": 10,
+    "max_drawdown": -0.32515073802732075,
+    "max_drawdown_duration_bars": 6415,
+    "max_drawdown_recovery_bars": 6416,
+    "net_total_return": 0.44982853254905475,
+    "payoff_ratio": 4.644862265354983,
+    "profit_factor": 1.4218966118433622,
+    "psr_vs_zero": 0.8582185836967795,
+    "sharpe": 0.7577908172800808,
+    "sharpe_ci_annualized": [
+      -0.4815423796004238,
+      1.9379975084660637
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.008096499347511122,
+    "sortino": 1.099057076296532,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 8,
+      "median": 0.026724764827805836,
+      "positive_share": 0.5,
+      "worst": -0.22716530148131153
+    },
+    "trades": 64,
+    "trades_per_year": 32.02559122586542,
+    "turnover_per_year": 64.3151585516359,
+    "win_rate": 0.234375,
+    "worst_day": -0.10768143299138455,
+    "years": 2.0
+  },
+  "code_commit": "532156e",
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-10T13:42:27Z",
+  "data": {
+    "development_bars": 35025,
+    "first_bar": "2021-11-11T14:00:00Z",
+    "holdout_bars": 8773,
+    "holdout_start": "2025-11-10",
+    "last_development_bar": "2025-11-09T23:00:00Z",
+    "oos_end": "2025-11-09T23:00:00Z",
+    "oos_start": "2023-11-11T15:00:00Z"
+  },
+  "data_quality": {
+    "duplicates": 0,
+    "first_open_time_ms": 1636639200000,
+    "gaps": 1,
+    "interval": "1h",
+    "invalid_rows": 0,
+    "issues": [
+      "1 gaps, 1 missing bars"
+    ],
+    "last_open_time_ms": 1794312000000,
+    "missing_bars": 1,
+    "out_of_order": false,
+    "rows": 43798,
+    "staleness_bars": 2.7777777777777776e-07,
+    "status": "degraded",
+    "symbol": "ETHUSDT"
+  },
+  "experiment_id": "exp_b43f8a52509f4e7d8f63",
+  "folds": [
+    {
+      "baseline": {
+        "exposure": 0.274537037037037,
+        "max_drawdown": -0.16263978156178138,
+        "net_total_return": -0.05782443667383219,
+        "sharpe": -0.8466685095836485,
+        "sortino": -1.219921760022701,
+        "turnover_per_year": 84.88861256152434
+      },
+      "end_bar_exclusive": 19680,
+      "overlay": {
+        "exposure": 0.2745019459598351,
+        "max_drawdown": -0.1624703550016634,
+        "net_total_return": -0.057633802390991806,
+        "sharpe": -0.8434302934560521,
+        "sortino": -1.2153273322896962,
+        "turnover_per_year": 84.82742620731733
+      },
+      "start_bar": 17520,
+      "target_volatility": 0.5819556727984367,
+      "unbanded_overlay": {
+        "exposure": 0.27451980726100517,
+        "max_drawdown": -0.16255540131069213,
+        "net_total_return": -0.057729494247797275,
+        "sharpe": -0.8450622880787539,
+        "sortino": -1.2176505711392438,
+        "turnover_per_year": 84.87675498237253
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.4444444444444444,
+        "max_drawdown": -0.23430956243636147,
+        "net_total_return": 0.1079791953081235,
+        "sharpe": 1.2432532978828421,
+        "sortino": 1.7004933965232687,
+        "turnover_per_year": 68.71529365499018
+      },
+      "end_bar_exclusive": 21840,
+      "overlay": {
+        "exposure": 0.40590707433459833,
+        "max_drawdown": -0.20653243051197068,
+        "net_total_return": 0.148173616927755,
+        "sharpe": 1.690885137161406,
+        "sortino": 2.324678211045045,
+        "turnover_per_year": 55.70431069095667
+      },
+      "start_bar": 19680,
+      "target_volatility": 0.5435870199832558,
+      "unbanded_overlay": {
+        "exposure": 0.4049524174691029,
+        "max_drawdown": -0.20593955687309218,
+        "net_total_return": 0.1490315245430256,
+        "sharpe": 1.701330043858401,
+        "sortino": 2.340180159193538,
+        "turnover_per_year": 56.98252760108164
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.25324074074074077,
+        "max_drawdown": -0.13635582301373783,
+        "net_total_return": 0.07170447603381458,
+        "sharpe": 1.1760798798270617,
+        "sortino": 1.8160953989502977,
+        "turnover_per_year": 64.69358555165799
+      },
+      "end_bar_exclusive": 24000,
+      "overlay": {
+        "exposure": 0.23216301685819954,
+        "max_drawdown": -0.12653995692731856,
+        "net_total_return": 0.0631276280605717,
+        "sharpe": 1.143451802075326,
+        "sortino": 1.7610703144061133,
+        "turnover_per_year": 60.92384896856289
+      },
+      "start_bar": 21840,
+      "target_volatility": 0.5374966720900001,
+      "unbanded_overlay": {
+        "exposure": 0.23243184057476202,
+        "max_drawdown": -0.12569166581633084,
+        "net_total_return": 0.06371575187822276,
+        "sharpe": 1.1550595149842557,
+        "sortino": 1.7792951927160496,
+        "turnover_per_year": 62.71148659785283
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.19444444444444445,
+        "max_drawdown": -0.11568307827851343,
+        "net_total_return": -0.08867138512292638,
+        "sharpe": -1.8700662353920054,
+        "sortino": -2.637733594651551,
+        "turnover_per_year": 64.71348616262203
+      },
+      "end_bar_exclusive": 26160,
+      "overlay": {
+        "exposure": 0.17215090655688692,
+        "max_drawdown": -0.10626027122435922,
+        "net_total_return": -0.07403367653597759,
+        "sharpe": -1.7216001534636327,
+        "sortino": -2.444517858530182,
+        "turnover_per_year": 57.21480298661025
+      },
+      "start_bar": 24000,
+      "target_volatility": 0.5292219756704875,
+      "unbanded_overlay": {
+        "exposure": 0.1722113063338263,
+        "max_drawdown": -0.1062248385569009,
+        "net_total_return": -0.07528158379451233,
+        "sharpe": -1.755302898366752,
+        "sortino": -2.490581739602381,
+        "turnover_per_year": 58.431329611256245
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.3490740740740741,
+        "max_drawdown": -0.11324821394985507,
+        "net_total_return": 0.2590807580180996,
+        "sharpe": 2.614301683618603,
+        "sortino": 3.9044504521587204,
+        "turnover_per_year": 56.61863313175039
+      },
+      "end_bar_exclusive": 28320,
+      "overlay": {
+        "exposure": 0.2774673241189217,
+        "max_drawdown": -0.0861739656672389,
+        "net_total_return": 0.2408868647427318,
+        "sharpe": 2.9055114428301905,
+        "sortino": 4.409993120808842,
+        "turnover_per_year": 44.20996301439076
+      },
+      "start_bar": 26160,
+      "target_volatility": 0.5188647011198586,
+      "unbanded_overlay": {
+        "exposure": 0.27399636986753295,
+        "max_drawdown": -0.08624518082916244,
+        "net_total_return": 0.2394726630233459,
+        "sharpe": 2.9361735745348216,
+        "sortino": 4.467435690369401,
+        "turnover_per_year": 47.113817261456354
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.11851851851851852,
+        "max_drawdown": -0.23089160185989732,
+        "net_total_return": -0.22458653224204006,
+        "sharpe": -4.657054915645296,
+        "sortino": -5.518424320933548,
+        "turnover_per_year": 60.46440525572812
+      },
+      "end_bar_exclusive": 30480,
+      "overlay": {
+        "exposure": 0.0715442186404265,
+        "max_drawdown": -0.14624427095845471,
+        "net_total_return": -0.14186346789244586,
+        "sharpe": -4.793392784642071,
+        "sortino": -5.6874540163754705,
+        "turnover_per_year": 36.80903368549926
+      },
+      "start_bar": 28320,
+      "target_volatility": 0.536645809952798,
+      "unbanded_overlay": {
+        "exposure": 0.07186069078587955,
+        "max_drawdown": -0.14641240427880076,
+        "net_total_return": -0.14203247501076466,
+        "sharpe": -4.797760868920899,
+        "sortino": -5.694475284843155,
+        "turnover_per_year": 37.98301308463405
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.3347222222222222,
+        "max_drawdown": -0.19370844516461738,
+        "net_total_return": 0.4538384820574419,
+        "sharpe": 3.7491416093517014,
+        "sortino": 5.944560531798179,
+        "turnover_per_year": 76.62438630984889
+      },
+      "end_bar_exclusive": 32640,
+      "overlay": {
+        "exposure": 0.28795440425151725,
+        "max_drawdown": -0.1573200718790314,
+        "net_total_return": 0.3986557129240962,
+        "sharpe": 3.916218830068167,
+        "sortino": 6.261907756407885,
+        "turnover_per_year": 62.49254795471165
+      },
+      "start_bar": 30480,
+      "target_volatility": 0.5589665486318524,
+      "unbanded_overlay": {
+        "exposure": 0.28488425098112735,
+        "max_drawdown": -0.15800175675455308,
+        "net_total_return": 0.38854245464317105,
+        "sharpe": 3.8677922747672566,
+        "sortino": 6.169385025938826,
+        "turnover_per_year": 66.22762918335827
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.1685185185185185,
+        "max_drawdown": -0.09999263264942082,
+        "net_total_return": -0.018254946378202908,
+        "sharpe": -0.1967503184553472,
+        "sortino": -0.2802832296410796,
+        "turnover_per_year": 40.48184682547025
+      },
+      "end_bar_exclusive": 34800,
+      "overlay": {
+        "exposure": 0.16307147849327566,
+        "max_drawdown": -0.09287058982188368,
+        "net_total_return": -0.01522436340870903,
+        "sharpe": -0.15981703255337118,
+        "sortino": -0.2281524324993019,
+        "turnover_per_year": 37.929560354491905
+      },
+      "start_bar": 32640,
+      "target_volatility": 0.612938633899324,
+      "unbanded_overlay": {
+        "exposure": 0.16313266598451023,
+        "max_drawdown": -0.0924738841650119,
+        "net_total_return": -0.01497558940195931,
+        "sharpe": -0.15490407173847393,
+        "sortino": -0.22111439538311967,
+        "turnover_per_year": 38.37513272567289
+      }
+    },
+    {
+      "baseline": {
+        "exposure": 0.04,
+        "max_drawdown": -0.0035939107587743546,
+        "net_total_return": 0.020472582109763104,
+        "sharpe": 8.905112715497234,
+        "sortino": 33.78986922660394,
+        "turnover_per_year": 38.88278571190785
+      },
+      "end_bar_exclusive": 35025,
+      "overlay": {
+        "exposure": 0.03483901945895191,
+        "max_drawdown": -0.0031269544564902496,
+        "net_total_return": 0.017801634820239443,
+        "sharpe": 8.904066383660101,
+        "sortino": 33.78534772968858,
+        "turnover_per_year": 33.80995852530518
+      },
+      "start_bar": 34800,
+      "target_volatility": 0.6483085047778365,
+      "unbanded_overlay": {
+        "exposure": 0.03562317769813339,
+        "max_drawdown": -0.0031867605843418634,
+        "net_total_return": 0.01808188157572821,
+        "sharpe": 8.876632065969954,
+        "sortino": 33.58374148002147,
+        "turnover_per_year": 35.34784310359786
+      }
+    }
+  ],
+  "gates_provisional": {
+    "beats_baseline_in_two_thirds_of_folds": true,
+    "beats_baseline_sharpe_ci": true,
+    "dsr_at_least_min": true,
+    "enough_trades": false,
+    "positive_at_stressed_costs": true,
+    "sharpe_ci_above_zero": false
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "30-day volatility scaling with a 5% no-trade band reduces turnover on ETHUSDT 1h",
+  "interval": "1h",
+  "kind": "volatility_overlay",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "Single-symbol long/flat simulation; no portfolio effects.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only.",
+    "Volatility scaling is an exposure-management hypothesis; a risk-adjusted improvement is not proof of alpha."
+  ],
+  "overlay": {
+    "annualized_volatility": 0.270425732093764,
+    "avg_bars_held": 72.140625,
+    "avg_loss": -0.020612902757709925,
+    "avg_win": 0.10630626933676515,
+    "bars": 17506,
+    "cagr": 0.26120123133252826,
+    "calmar": 1.1095107408639202,
+    "daily_cvar_95": -0.03024303124436343,
+    "expectancy_per_trade": 0.009133778201932669,
+    "exposure": 0.23300132393920778,
+    "max_consecutive_losses": 10,
+    "max_drawdown": -0.23542019172265427,
+    "max_drawdown_duration_bars": 6027,
+    "max_drawdown_recovery_bars": 6028,
+    "net_total_return": 0.5900387237182059,
+    "payoff_ratio": 5.1572682696037555,
+    "profit_factor": 1.5787555927358436,
+    "psr_vs_zero": 0.9201173379456049,
+    "sharpe": 0.9932922867641913,
+    "sharpe_ci_annualized": [
+      -0.21081438434173969,
+      2.202411798676075
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.010612678549655344,
+    "sortino": 1.4556788297958685,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 8,
+      "median": 0.023951632325931338,
+      "positive_share": 0.5,
+      "worst": -0.14365521340433274
+    },
+    "trades": 64,
+    "trades_per_year": 32.02559122586542,
+    "turnover_per_year": 54.73826501835266,
+    "win_rate": 0.234375,
+    "worst_day": -0.10769444632495018,
+    "years": 2.0
+  },
+  "overlay_at_stressed_costs": {
+    "annualized_volatility": 0.2714394252189441,
+    "avg_bars_held": 72.140625,
+    "avg_loss": -0.022314122817022566,
+    "avg_win": 0.11123660467344089,
+    "bars": 17506,
+    "cagr": 0.17433231912175584,
+    "calmar": 0.6720185770410082,
+    "daily_cvar_95": -0.03143820511527273,
+    "expectancy_per_trade": 0.006900098821516312,
+    "exposure": 0.23300132393920783,
+    "max_consecutive_losses": 10,
+    "max_drawdown": -0.25941592253203094,
+    "max_drawdown_duration_bars": 6628,
+    "max_drawdown_recovery_bars": 6629,
+    "multiplier": 2.0,
+    "net_total_return": 0.3787022635631496,
+    "payoff_ratio": 4.985031479193207,
+    "profit_factor": 1.3958088141740979,
+    "psr_vs_zero": 0.8483828751970144,
+    "sharpe": 0.7276895489412042,
+    "sharpe_ci_annualized": [
+      -0.5058456300522419,
+      1.9593052594939995
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.007774886979153676,
+    "sortino": 1.060061059193438,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 8,
+      "median": 0.007682326192494315,
+      "positive_share": 0.5,
+      "worst": -0.1537338530858472
+    },
+    "trades": 64,
+    "trades_per_year": 32.02559122586542,
+    "turnover_per_year": 54.70717119574296,
+    "win_rate": 0.21875,
+    "worst_day": -0.10985680858207159,
+    "years": 2.0
+  },
+  "paired_sharpe_difference_ci_annualized": [
+    0.061634594200161735,
+    0.39221691559606464
+  ],
+  "params": {
+    "atr_stop_mult": 3.0,
+    "entry_lookback": 96.0,
+    "exit_lookback": 48.0,
+    "exposure_cap": 1.0,
+    "rebalance_band": 0.05,
+    "test_days": 90,
+    "train_days": 730,
+    "vol_lookback_days": 30
+  },
+  "preregistered_band_checks": {
+    "exploratory_only_oos_previously_viewed": true,
+    "net_total_return_difference_vs_unbanded": 0.013011081653123924,
+    "net_total_return_within_5pp_of_unbanded": true,
+    "paired_sharpe_difference_ci_vs_unbanded_annualized": [
+      -0.008550458477124111,
+      0.0321958862427783
+    ],
+    "turnover_reduced_at_least_25pct": false,
+    "turnover_reduction_fraction": 0.027937877435005753
+  },
+  "preregistered_protocol": "research/protocols/volatility-rebalance-band-v1.md",
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.5382740449567553,
+    "note": "DSR counts all earlier registered trials and every candidate in this predeclared batch.",
+    "sharpe_variance_across_trials": 1.8068968686159803e-05,
+    "trials_including_this": 57
+  },
+  "strategy": "vol_scaled_donchian_breakout_v1_band",
+  "symbol": "ETHUSDT",
+  "unbanded_overlay_reference": {
+    "annualized_volatility": 0.26891200193815845,
+    "avg_bars_held": 72.140625,
+    "avg_loss": -0.02061752638918574,
+    "avg_win": 0.10560444643725694,
+    "bars": 17506,
+    "cagr": 0.2560263816513304,
+    "calmar": 1.0810387768456469,
+    "daily_cvar_95": -0.030147605488651148,
+    "expectancy_per_trade": 0.008965748492011762,
+    "exposure": 0.2321759516382276,
+    "max_consecutive_losses": 10,
+    "max_drawdown": -0.236833670664791,
+    "max_drawdown_duration_bars": 6029,
+    "max_drawdown_recovery_bars": 6030,
+    "net_total_return": 0.577027642065082,
+    "payoff_ratio": 5.122071602762607,
+    "profit_factor": 1.5679811028865123,
+    "psr_vs_zero": 0.9177151585059211,
+    "sharpe": 0.9820809346512414,
+    "sharpe_ci_annualized": [
+      -0.2273333529384739,
+      2.190017327266237
+    ],
+    "sharpe_ci_level": 0.9,
+    "sharpe_per_period": 0.010492892583664063,
+    "sortino": 1.4385827346460685,
+    "sub_periods": {
+      "block_days": 90,
+      "count": 8,
+      "median": 0.024370081238131724,
+      "positive_share": 0.5,
+      "worst": -0.14390428372538755
+    },
+    "trades": 64,
+    "trades_per_year": 32.02559122586542,
+    "turnover_per_year": 56.311488481738195,
+    "win_rate": 0.234375,
+    "worst_day": -0.1076757203844183,
+    "years": 2.0
+  },
+  "walk_forward": {
+    "folds": 9,
+    "normalizer": "median trailing volatility in prior training window",
+    "test_days": 90,
+    "train_days": 730,
+    "vol_lookback_days": 30
+  },
+  "working_tree_dirty": true
+}
