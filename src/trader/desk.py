@@ -578,6 +578,23 @@ class TradingDesk:
             "get_shadow_log", args, data, status=status, warnings=warnings, summary=f"{len(rows)} shadow rows"
         )
 
+    def shadow_performance(self) -> Envelope:
+        """Forward paper P&L of the logged baseline signals under the risk policy. Pure computation, no orders."""
+        from trader.shadow_pnl import evaluate_shadow
+
+        report = evaluate_shadow(self)
+        status = "ok" if report["status"] == "ok" else "unavailable"
+        warnings = []
+        if status == "ok":
+            needed = report["what_this_can_show"]["observed_annual_sharpe_needed_for_significance"]
+            warnings.append(
+                f"{report['what_this_can_show']['days_of_data']} days of data: only an annual Sharpe above about "
+                f"{needed:.1f} would be distinguishable from luck. Not evidence of profitability."
+            )
+            if report["rows_logged_late"]:
+                warnings.append(f"{report['rows_logged_late']} rows were logged late (catch-up), not in real time")
+        return self._envelope("get_shadow_performance", {}, report, status=status, warnings=warnings)
+
     def train_model(self, symbol: str, model_name: str) -> Envelope:
         """CLI-only (not exposed over MCP): evaluate with purged walk-forward, then fit and store."""
         symbol = self._check_symbol(symbol)

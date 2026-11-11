@@ -253,6 +253,15 @@ def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shadow_pnl(args: argparse.Namespace) -> int:
+    """Print the forward paper P&L of the logged baseline signals (see trader.shadow_pnl)."""
+    from trader.shadow_pnl import evaluate_shadow
+
+    report = evaluate_shadow(TradingDesk())
+    _print(report)
+    return 0 if report["status"] == "ok" else 1
+
+
 def cmd_collect_derivatives(args: argparse.Namespace) -> int:
     """Append funding-rate and open-interest history for the universe (public data; schedule hourly)."""
     from trader.derivatives import collect_derivatives
@@ -842,6 +851,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--symbol")
     p.set_defaults(fn=cmd_collect_derivatives)
+
+    sub.add_parser(
+        "shadow-pnl", help="forward paper P&L of the logged baseline signals under the risk policy (no orders)"
+    ).set_defaults(fn=cmd_shadow_pnl)
 
     p = sub.add_parser("backtest", help="evaluate a strategy; every run is logged as a trial")
     p.add_argument("strategy")

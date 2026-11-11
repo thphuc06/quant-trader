@@ -27,6 +27,7 @@ call. Never call a write tool the operator did not ask for.
 | Block all new entries | `activate_kill_switch` (**ask**) |
 | Past experiments | `get_experiment_results` |
 | What the mechanical system logged at each past closed bar (forward shadow log, no LLM) | `get_shadow_log` |
+| Would the logged baseline signals have made money forward? (paper P&L vs exposure-matched buy-and-hold; short records prove nothing) | `get_shadow_performance` |
 | A new research trial (logged, counts against DSR) | `run_backtest` (**ask**) |
 
 Claude Code's own `WebSearch`/`WebFetch` may be used for news when the MCP search tools are `unavailable`; then

@@ -149,6 +149,14 @@ def get_shadow_log(symbol: str, limit: int = 48) -> dict[str, Any]:
     return _safe("get_shadow_log", lambda: desk().shadow_log(symbol, limit))
 
 
+@mcp.tool(annotations=READ)
+def get_shadow_performance() -> dict[str, Any]:
+    """Forward paper P&L of the baseline signals recorded in the shadow log, simulated under the risk policy with
+    next-bar-open fills and modeled costs (1x and 2x), compared with buy-and-hold at the same average exposure.
+    No orders, no LLM. Early on it detects only implementation errors or large losses, not profitability."""
+    return _safe("get_shadow_performance", lambda: desk().shadow_performance())
+
+
 # ----------------------------------------------------------------------------- web / knowledge (read-only)
 
 

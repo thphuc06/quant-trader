@@ -213,6 +213,15 @@ def read_rows(db: Database, symbol: str, interval: str, limit: int) -> list[dict
     return [json.loads(r["payload_json"]) for r in reversed(rows)]
 
 
+def all_rows(db: Database, symbol: str, interval: str) -> list[dict[str, Any]]:
+    """Every logged row for a symbol, oldest first (for evaluation code, not for the MCP tool)."""
+    rows = db.query(
+        "SELECT payload_json FROM shadow_log WHERE symbol=? AND interval=? ORDER BY open_time_ms",
+        (symbol, interval),
+    )
+    return [json.loads(r["payload_json"]) for r in rows]
+
+
 def summary(db: Database, symbol: str, interval: str) -> dict[str, Any]:
     rows = db.query(
         "SELECT COUNT(*) AS n, SUM(bar_status='missing') AS missing, MIN(open_time_ms) AS first, "

@@ -43,7 +43,7 @@ EXPECTED_TOOLS = {
     "get_model_predictions", "run_backtest", "get_experiment_results", "search_web", "search_crypto_news", "fetch_web_page", "search_knowledge",
     "get_knowledge_document", "get_pending_lessons", "get_account_state", "get_open_positions", "sync_positions", "get_risk_state", "calculate_position_risk",
     "get_trade_intent", "get_trade_case", "record_decision_report", "submit_post_trade_review", "create_trade_intent", "execute_approved_trade",
-    "cancel_trade_intent", "activate_kill_switch", "protect_position", "get_shadow_log",
+    "cancel_trade_intent", "activate_kill_switch", "protect_position", "get_shadow_log", "get_shadow_performance",
 }  # fmt: skip
 FORBIDDEN_FRAGMENTS = [
     "withdraw",
