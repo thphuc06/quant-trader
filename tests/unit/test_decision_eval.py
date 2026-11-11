@@ -106,3 +106,34 @@ def test_prompt_hash_is_stable_and_the_prompt_forbids_trading() -> None:
         prompt.startswith("/analyze-symbol ETHUSDT")
         and "Do not create, execute or cancel trade intents" in prompt
     )
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "mcp__trading__create_trade_intent", "mcp__trading__execute_approved_trade", "mcp__trading__cancel_trade_intent",
+        "mcp__trading__activate_kill_switch", "mcp__trading__sync_positions", "mcp__trading__run_backtest",
+        "mcp__trading__submit_post_trade_review", "Bash", "Write", "Edit", "WebFetch",
+    ],
+)  # fmt: skip
+def test_permission_gate_denies_everything_but_the_decision_report(tool: str) -> None:
+    from trader.evals.permission_gate import decision_for
+
+    assert decision_for(tool, {"x": 1})["behavior"] == "deny"
+    allowed = decision_for("mcp__trading__record_decision_report", {"report": {"symbol": "BTCUSDT"}})
+    assert allowed == {"behavior": "allow", "updatedInput": {"report": {"symbol": "BTCUSDT"}}}
+
+
+@pytest.mark.anyio
+async def test_permission_gate_answers_over_mcp() -> None:
+    from mcp import Client
+
+    from trader.evals.permission_gate import gate
+
+    async with Client(gate, raise_exceptions=True) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+        assert names == {"decide"}
+        result = await client.call_tool(
+            "decide", {"tool_name": "mcp__trading__execute_approved_trade", "input": {}}
+        )
+        assert json.loads(result.content[0].text)["behavior"] == "deny"  # type: ignore[union-attr]

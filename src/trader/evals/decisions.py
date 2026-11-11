@@ -15,6 +15,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ PROTOCOL_PATH = "research/protocols/llm-decision-eval-v1.md"
 LEDGER = Path("research") / "decision-eval" / "forecasts.jsonl"
 DATA_DIRNAME = "decision_eval"
 RECORD_TOOL = "mcp__trading__record_decision_report"
+GATE_SERVER = "eval_gate"
 PROMPT_TEMPLATE = (
     "/analyze-symbol {symbol}\n\n"
     "This is a scheduled evaluation run in PAPER mode. Follow the skill fully and finish by recording the decision "
@@ -106,12 +108,20 @@ def run_session(
     settings = {"env": {k: env[k] for k in ("TRADER_SESSION_ROLE", "TRADING_MODE", "LIVE_TRADING_ENABLED",
                                             "TRADER_DATA_DIR")}}  # fmt: skip
     allow = [*project_allow_rules(root), RECORD_TOOL]
+    # The project's `ask` rule outranks --allowedTools, so the one write these sessions may make is answered by a
+    # permission gate that allows only record_decision_report and denies every other prompt (see permission_gate.py).
+    gate = {
+        "mcpServers": {
+            GATE_SERVER: {"command": sys.executable, "args": ["-m", "trader.evals.permission_gate"]}
+        }
+    }
     command = [
         shutil.which("claude") or "claude", "-p", prompt_for(symbol),
         "--model", model, "--effort", effort,
         "--output-format", "stream-json", "--verbose",
         "--max-turns", "40", "--max-budget-usd", f"{budget_usd:g}",
         "--settings", json.dumps(settings), "--allowedTools", ",".join(allow),
+        "--mcp-config", json.dumps(gate), "--permission-prompt-tool", f"mcp__{GATE_SERVER}__decide",
     ]  # fmt: skip
     started = datetime.now(UTC)
     completed = subprocess.run(
