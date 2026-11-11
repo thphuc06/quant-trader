@@ -357,6 +357,7 @@ class ScriptedBroker:
 
     def __init__(self, outcomes: list) -> None:
         self.outcomes = outcomes
+        self.base_fee = D("0.001")  # entry fee charged in the base asset, as Binance does without BNB
         self.sent: list[str] = []
         self.orders: dict[str, OrderResult] = {}
         self.stops: list[dict] = []
@@ -371,7 +372,7 @@ class ScriptedBroker:
     def filled(self, client_order_id: str, quantity: Decimal, side: Side = Side.BUY) -> OrderResult:
         return OrderResult(
             client_order_id=client_order_id, exchange_order_id="42", symbol="BTCUSDT", side=side, order_type=OrderType.MARKET, status="FILLED",
-            requested_qty=quantity, executed_qty=quantity, avg_price=D("100.02"), fills=[Fill(price=D("100.02"), quantity=quantity, fee=D("0.001"), fee_asset="BTC", ts=utc_now())],
+            requested_qty=quantity, executed_qty=quantity, avg_price=D("100.02"), fills=[Fill(price=D("100.02"), quantity=quantity, fee=self.base_fee, fee_asset="BTC", ts=utc_now())],
         )  # fmt: skip
 
     def execute(
@@ -825,6 +826,63 @@ def test_partial_exit_reprotects_the_remainder(repo_copy: Path, source: FakeSour
     assert position.protection == "PROTECTED" and position.quantity < held
     assert broker.stops[-1]["quantity"] == position.quantity and broker.stops[-1]["id"].endswith("-s2")
     assert not desk.execution.kill_switch()["engaged"]
+
+
+def test_full_exit_writes_off_a_sub_step_fee_remainder_instead_of_engaging_the_kill_switch(
+    repo_copy: Path, source: FakeSource
+) -> None:
+    """Reproduces the 2026-11-11 Demo cycle: the base-asset entry fee left less than one lot step after the exit."""
+    desk, broker = demo_desk(repo_copy, source, ["fill"])
+    broker.base_fee = D("0.0005")  # step size is 0.001, so the held quantity is no longer a whole number of steps
+    intent_id = open_long(desk)["data"]["intent"]["intent_id"]
+    desk.execution.record_cli_approval(intent_id)
+    opened = desk.execute_approved_trade(intent_id)
+    assert opened["status"] == "ok" and protection(desk) == "PROTECTED"
+    held = desk.execution.positions()[0].quantity
+    assert broker.stops[0]["quantity"] == held - D("0.0005")  # the stop covers every sellable step
+
+    result = desk.execute_approved_trade(sell_intent(desk, "exit-dust-01", size_scale="1"))
+    assert result["status"] == "ok", result
+    dust = result["data"]["dust"]
+    assert dust["status"] == "dust_written_off" and D(dust["quantity"]) == D("0.0005") and "step size" in dust["reason"]
+    assert desk.execution.positions() == [] and not desk.execution.kill_switch()["engaged"]
+    assert len(broker.stops) == 1  # no stop was attempted for the dust
+    reasons = sorted(c["exit_reason"] for c in desk.execution.closed_trades())
+    assert reasons == ["dust_below_exchange_minimum", "operator_exit"]
+    assert "dust_written_off" in [e["event_type"] for e in desk.db.journal_events(intent_id)]
+    assert "all_positions_protected" not in failed_names(open_long(desk, symbol="ETHUSDT", key="after-dust-01"))
+
+
+@pytest.mark.parametrize("tool", ["sync_positions", "protect_position"])
+def test_dust_left_unprotected_by_older_code_is_written_off_but_the_kill_switch_stays(
+    repo_copy: Path, source: FakeSource, tool: str
+) -> None:
+    desk, broker, intent_id, _ = demo_position(repo_copy, source)
+    # the state the pre-fix code left behind: a sub-step remainder flagged UNPROTECTED and the kill switch engaged
+    desk.db.execute(
+        "UPDATE positions SET quantity='0.0005', protection='UNPROTECTED', stop_client_order_id=NULL WHERE symbol='BTCUSDT'"
+    )
+    desk.execution.engage_kill_switch("BTCUSDT protective stop unprotected: -1013 Invalid quantity", by="system")
+    stops_before = len(broker.stops)
+    if tool == "sync_positions":
+        outcome = desk.sync_positions()["data"]["settled"][0]
+    else:
+        outcome = desk.protect_position("BTCUSDT")["data"]
+    assert outcome["status"] == "dust_written_off"
+    assert desk.execution.positions() == [] and len(broker.stops) == stops_before
+    assert desk.execution.kill_switch()["engaged"]  # releasing it stays a human-only CLI action
+    assert desk.execution.closed_trades()[0]["exit_reason"] == "dust_below_exchange_minimum"
+
+
+def test_dust_rule_covers_step_size_and_min_notional_but_not_a_sellable_remainder(
+    repo_copy: Path, source: FakeSource
+) -> None:
+    from trader.execution import ExecutionService
+
+    filters = source.symbol_filters("BTCUSDT")  # step 0.001, minQty 0.001, minNotional 5
+    assert "minNotional" in (ExecutionService._dust_reason(D("0.02"), D("100"), filters) or "")
+    assert "step size" in (ExecutionService._dust_reason(D("0.0004"), D("100"), filters) or "")
+    assert ExecutionService._dust_reason(D("0.06"), D("100"), filters) is None
 
 
 def test_exit_when_stop_already_filled_sends_no_sell(repo_copy: Path, source: FakeSource) -> None:

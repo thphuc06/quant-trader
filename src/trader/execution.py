@@ -41,7 +41,7 @@ from trader.exchanges.binance.client import (
     OrderStateUnknown,
     Signer,
 )
-from trader.exchanges.binance.filters import round_price, round_quantity
+from trader.exchanges.binance.filters import check_order, round_price, round_quantity
 from trader.marketdata import MarketData
 from trader.risk import RiskContext, validate_intent
 from trader.storage.candles import check_quality, drop_unclosed, klines_to_frame
@@ -54,6 +54,9 @@ KILL_SWITCH_KEY = "kill_switch"
 # skipped by a gap and leave the position unprotected, which the risk sizing (loss capped at the stop) assumes
 # cannot happen. Accepted cost: slippage beyond the trigger in a fast market.
 STOP_ORDER_TYPE = "STOP_LOSS"
+# A remainder below the exchange minimums (typically the base-asset fee left after a full exit) is closed in the
+# ledger with this reason instead of being reported unprotected: it can be neither sold nor protected.
+DUST_EXIT_REASON = "dust_below_exchange_minimum"
 UNKNOWN_GRACE_SECONDS = 30
 
 
@@ -1176,7 +1179,10 @@ class ExecutionService:
                 intent.intent_id,
             )
             remaining = self.position(request.symbol)
-            if remaining is not None and remaining.protection not in PROTECTED_STATES:
+            if remaining is not None and self._dust_reason(remaining.quantity, result.avg_price, filters):
+                # e.g. the base-asset fee left a sub-step remainder: it can be neither sold nor protected
+                summary["dust"] = self._write_off_dust(remaining, filters, result.avg_price)
+            elif remaining is not None and remaining.protection not in PROTECTED_STATES:
                 summary["protective_stop"] = self._protect(remaining, filters)
         self._set_status(intent.intent_id, IntentStatus.FILLED, expected=IntentStatus.EXECUTING)
         still_open = self.position(request.symbol)
@@ -1206,6 +1212,42 @@ class ExecutionService:
         )
         if engage and state not in PROTECTED_STATES and not self.kill_switch().get("engaged"):
             self.engage_kill_switch(f"{position.symbol} protective stop {state.lower()}: {reason}"[:300], by="system")
+
+    @staticmethod
+    def _dust_reason(quantity: Decimal, price: Decimal, filters: SymbolFilters) -> str | None:
+        """Why this quantity can never be sold or protected on the exchange (None when it can)."""
+        rounded = round_quantity(quantity, filters, OrderType.MARKET)
+        if rounded <= 0:
+            return f"quantity {quantity} is below the exchange step size {filters.step_size}"
+        problems = [
+            p for p in check_order(rounded, price, filters, OrderType.MARKET) if "minQty" in p or "minNotional" in p
+        ]
+        return "; ".join(problems) or None
+
+    def _write_off_dust(self, position: Position, filters: SymbolFilters, mark_price: Decimal) -> dict[str, Any]:
+        """Stop tracking a remainder that is below the exchange minimums.
+
+        It stays in the exchange balance but cannot be sold or carry a stop, so it is not a risk the desk can
+        manage: it is closed in the ledger at ``mark_price`` (no fee, not a sale) instead of being reported
+        UNPROTECTED, which would engage the kill switch for an untradeable amount. The exchange balance is then
+        larger than the ledger, which the reconciliation check allows.
+        """
+        reason = self._dust_reason(position.quantity, mark_price, filters) or "below exchange minimums"
+        closed = self._reduce_position(
+            position.symbol, position.quantity, mark_price, Decimal(0), DUST_EXIT_REASON, None
+        )
+        self.db.journal_append(
+            position.intent_id,
+            "dust_written_off",
+            {
+                "symbol": position.symbol,
+                "quantity": position.quantity,
+                "mark_price": mark_price,
+                "reason": reason,
+                "note": "still held on the exchange; cannot be sold or protected; no order was sent",
+            },
+        )
+        return {"status": "dust_written_off", "reason": reason, **closed}
 
     def _next_stop_client_id(self, intent_id: str) -> str:
         rows = self.db.query("SELECT client_order_id FROM intents WHERE intent_id=?", (intent_id,))
@@ -1288,13 +1330,16 @@ class ExecutionService:
             if position.protection != "UNPROTECTED":
                 return {"status": position.protection, "detail": "existing stop state resolved; nothing placed", "settled": event}
         quote = self.market.source.quote(symbol)
+        filters = self.market.filters(symbol, max_age_seconds=300)
+        if self._dust_reason(position.quantity, quote.bid, filters):
+            return self._write_off_dust(position, filters, quote.bid)
         if position.stop_price is not None and quote.bid <= position.stop_price:
             return {
                 "status": "UNPROTECTED",
                 "detail": f"bid {quote.bid} is already at or below the stop {position.stop_price}; a stop would trigger immediately. "
                 "Exit with a SELL intent instead.",
             }
-        return self._protect(position, self.market.filters(symbol, max_age_seconds=300))
+        return self._protect(position, filters)
 
     def _reduce_position(
         self,
@@ -1441,6 +1486,10 @@ class ExecutionService:
         base = {"symbol": position.symbol, "stop_client_order_id": stop_id}
         if stop_id is None:
             if position.protection not in PROTECTED_STATES:
+                filters = self.market.filters(position.symbol)
+                bid = self.market.source.quote(position.symbol).bid
+                if self._dust_reason(position.quantity, bid, filters):
+                    return {**base, **self._write_off_dust(position, filters, bid)}
                 return {**base, "status": "unprotected", "detail": "no working stop; call protect_position"}
             return None
         order = self.broker().find_order(position.symbol, stop_id)

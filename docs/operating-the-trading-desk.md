@@ -54,6 +54,13 @@ position is marked `UNPROTECTED`/`UNKNOWN`, the kill switch engages and new entr
 2. `protect_position <symbol>` places a new stop (allowed while the kill switch is on).
 3. When everything is `PROTECTED`, release the kill switch yourself: `python -m trader kill-switch release`.
 
+**Dust.** Without BNB for fees, Binance takes the entry fee in the base asset, so a full exit leaves a remainder
+smaller than one lot step (e.g. 0.00000792 BTC). It can be neither sold nor protected. Such a remainder (below the
+step size, `minQty` or `minNotional`) is closed in the ledger as `dust_below_exchange_minimum` at the market price,
+with a `dust_written_off` journal event; no order is sent and the kill switch is not engaged. The coins stay in the
+exchange balance. Dust left `UNPROTECTED` by code older than 2026-11-11 is cleaned up by `sync_positions` or
+`protect_position`; the kill switch it engaged still has to be released by you.
+
 ## 6. Incidents
 
 | Situation | Do |
