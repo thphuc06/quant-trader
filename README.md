@@ -22,6 +22,7 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | News/web: provider Tavily/Brave (tùy chọn), fetch chống SSRF, lưu point-in-time | Xong, có test |
 | Forward shadow log: `trader shadow-log` ghi mỗi nến 1h đã đóng (features, regime, target của baseline, data quality, commit), bảng append-only, nến thiếu ghi là `missing`; tool chỉ đọc `get_shadow_log` | Xong, có test; **cần operator đăng ký lịch chạy mỗi giờ** ([docs §9](docs/operating-the-trading-desk.md)) |
 | Lãi/lỗ forward của shadow log (`shadow-pnl`, tool `get_shadow_performance`): tín hiệu đã ghi chạy qua sizing của risk policy, phí 1× và 2×, so với buy & hold cùng exposure; báo kèm Sharpe tối thiểu cần để có ý nghĩa thống kê | Xong, có test (khớp chính xác với luật tính lại). Hiện mới ~1 ngày dữ liệu |
+| Đánh giá quyết định của LLM ([protocol](research/protocols/llm-decision-eval-v1.md)): mỗi ngày một session trader độc lập (`claude -p`, Sonnet, effort medium, PAPER, kho dữ liệu riêng) phân tích từng symbol và ghi dự báo xác suất 24h; `decision-eval-score` chấm Brier so với tỷ lệ nền và so với luật cơ học. Một "permission gate" chỉ cho phép ghi báo cáo, chặn mọi tool giao dịch | Xong, đã chạy thử thật (WATCH, p = 0.49, $0.17/session). **Cần operator lên lịch hằng ngày** ([docs §11](docs/operating-the-trading-desk.md)) |
 | MCP server `trading`: 31 tools, 8 resources, 4 prompts; khởi động qua `scripts/run_mcp.py` (tự tìm `.venv`) | Xong, có test (kể cả test spawn server qua stdio thật) |
 | Knowledge base ([knowledge/](knowledge/)) | Bộ tài liệu khởi đầu, đều ở trạng thái `candidate` |
 | Claude Code harness | `CLAUDE.md`; 4 skills kèm template/reference; 2 subagents chỉ đọc; 3 hook (`SessionStart`, `PreToolUse`, `PostToolUse`); permission least privilege; `state/` để bàn giao giữa các session; [docs/operating-the-trading-desk.md](docs/operating-the-trading-desk.md) |
@@ -32,7 +33,7 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | Khung kiểm định v2 (timing skill, tầng REJECTED / INCONCLUSIVE / VALIDATED) | Operator đã duyệt, có code và test |
 | Thu funding rate + open interest (`collect-derivatives`), bảng append-only | Xong, có test. Funding đầy đủ từ 2019; OI chỉ có 29 ngày gần nhất, **cần lên lịch chạy mỗi giờ** ([docs §10](docs/operating-the-trading-desk.md)). Chưa có tool MCP đọc lịch sử |
 
-Kiểm tra gần nhất (2026-11-11): 361 test pass, `ruff` và `mypy` sạch.
+Kiểm tra gần nhất (2026-11-11): 378 test pass, `ruff` và `mypy` sạch.
 
 ### Chu trình Binance Demo đầu tiên (2026-11-11)
 
@@ -238,6 +239,8 @@ python -m trader status                      # trạng thái hệ thống (JSON)
 python -m trader shadow-log                  # ghi shadow log các nến 1h đã đóng (lên lịch mỗi giờ, docs §9)
 python -m trader collect-derivatives         # funding + open interest (OI chỉ giữ ~30 ngày; lên lịch mỗi giờ, docs §10)
 python -m trader shadow-pnl                  # lãi/lỗ giả lập forward của tín hiệu trong shadow log, so với buy & hold cùng exposure
+python scripts/decision_eval.py              # session trader độc lập phân tích từng symbol (tốn quota; lịch hằng ngày, docs §11)
+python -m trader decision-eval-score         # chấm điểm dự báo 24h của LLM (không gọi Claude)
 python -m trader ingest --intervals 1h       # tải lịch sử nến
 python -m trader backtest donchian_breakout_v1 --symbol BTCUSDT   # mỗi lần chạy được ghi lại như 1 trial
 python -m trader research-volatility-overlay # challenger OOS trên dữ liệu đã ingest; không tải thay dữ liệu
