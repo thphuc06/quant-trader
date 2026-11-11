@@ -79,6 +79,9 @@ def evaluate(
         daily, tuple(p["bootstrap_blocks"]), n_boot=int(p["n_boot"]), ci=float(p["ci"])
     )
     sharpe_daily = sharpe_per_period(daily)
+    summary["sharpe_per_period"] = (
+        sharpe_daily  # daily bars: per period = per day (read by the trial registry)
+    )
 
     def dsr(n: int, sharpes: list[float]) -> float:
         finite = [s for s in sharpes if np.isfinite(s)]

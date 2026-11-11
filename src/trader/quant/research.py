@@ -53,6 +53,21 @@ def min_evaluation_trades(validation: dict[str, float]) -> int:
     return int(validation.get("min_evaluation_trades", validation.get("min_oos_trades", 100)))
 
 
+CORRECTION_NOTE = (
+    "Corrected re-run of the same frozen configuration after an implementation defect; the superseded record is kept "
+    "and excluded from the DSR trial count. The defect was found after the first results were seen."
+)
+
+
+def mark_supersedes(runs: list[dict[str, Any]], supersedes: dict[str, str] | None, defect: str) -> None:
+    """Attach ``supersedes`` (keyed '<role>:<strategy>') and a correction note to corrected re-runs."""
+    for run in runs:
+        old = (supersedes or {}).get(f"{run.get('role')}:{run.get('strategy')}")
+        if old:
+            run["supersedes"] = [old]
+            run["correction"] = {"defect": defect, "note": CORRECTION_NOTE}
+
+
 def holdout_start_ms(holdout_start: str) -> int:
     return to_ms(datetime.fromisoformat(holdout_start).replace(tzinfo=UTC))
 
@@ -118,7 +133,7 @@ class ExperimentRegistry:
         path = self.directory / f"{experiment_id}.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    def trials(self) -> list[dict[str, Any]]:
+    def trials(self, exclude: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
         """Every registered evaluation that counts toward the DSR trial count.
 
         Counted: single-strategy backtests (except the benchmarks ``buy_and_hold`` / ``no_trade``, which are
@@ -140,8 +155,13 @@ class ExperimentRegistry:
                 }
             )
 
-        for record in self.records():
+        all_records = self.records()
+        # a corrected re-run of the same configuration (implementation defect) replaces, not adds, a trial
+        superseded = {sid for record in all_records for sid in record.get("supersedes", []) or []} | set(exclude)
+        for record in all_records:
             if record.get("diagnostic_only") or record.get("counts_toward_dsr") is False:
+                continue
+            if record.get("experiment_id") in superseded:
                 continue
             kind = record.get("kind")
             if kind == "backtest":
@@ -165,17 +185,19 @@ class ExperimentRegistry:
                 add(record, record.get("portfolio", {}).get("sharpe_per_period"))
         return out
 
-    def trial_count(self) -> int:
-        return len(self.trials())
+    def trial_count(self, exclude: frozenset[str] = frozenset()) -> int:
+        return len(self.trials(exclude))
 
-    def trial_sharpes(self, target_interval: str | None = None) -> list[float]:
+    def trial_sharpes(
+        self, target_interval: str | None = None, exclude: frozenset[str] = frozenset()
+    ) -> list[float]:
         """Finite per-period Sharpe ratios of counted trials.
 
         With ``target_interval``, each value is rescaled from its own bar interval to that interval
         (x sqrt(bars_per_year(source) / bars_per_year(target))) so trials on different clocks share units.
         """
         values = []
-        for trial in self.trials():
+        for trial in self.trials(exclude):
             sharpe = trial["sharpe_per_period"]
             if sharpe is None:
                 continue

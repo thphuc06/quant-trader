@@ -133,7 +133,9 @@ class PortfolioResult:
     rejections: Counter[str] = field(default_factory=Counter)
     interval: str = "1h"
     priority: list[str] = field(default_factory=list)
-    symbol_exposure: pd.DataFrame = field(default_factory=pd.DataFrame)  # position value / equity at bar close
+    symbol_exposure: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )  # position value / equity at bar close
     asset_returns: pd.DataFrame = field(default_factory=pd.DataFrame)  # close-to-close, 0 on a missing bar
     bar_cost: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))  # cost / equity at bar open
 
@@ -312,7 +314,10 @@ def run_portfolio_backtest(
             if clip_stop_to_policy:
                 stop_price = max(stop_price, entry * (1 - limits.max_stop_distance_pct / 100))
             distance_pct = (entry - stop_price) / entry * 100
-            if not limits.min_stop_distance_pct <= distance_pct <= limits.max_stop_distance_pct:
+            # Tolerance: a stop clipped to exactly the policy maximum must not be rejected by float rounding
+            # (the live risk engine uses Decimal and has no such error). Found 2026-11-11, see research-log.
+            tol = 1e-9
+            if not limits.min_stop_distance_pct - tol <= distance_pct <= limits.max_stop_distance_pct + tol:
                 rejections["stop_distance_outside_policy"] += 1
                 continue
             quantity, binding = size_quantity(
@@ -351,7 +356,9 @@ def run_portfolio_backtest(
 
         # 4. mark to market at the close
         has_close = np.isfinite(closes[:, i]) & np.isfinite(last_close) & (last_close > 0)
-        asset_return_out[row] = np.where(has_close, closes[:, i] / np.where(has_close, last_close, 1.0) - 1.0, 0.0)
+        asset_return_out[row] = np.where(
+            has_close, closes[:, i] / np.where(has_close, last_close, 1.0) - 1.0, 0.0
+        )
         last_close = np.where(np.isfinite(closes[:, i]), closes[:, i], last_close)
         values = np.nan_to_num(units * last_close)
         held_value = float(values.sum())
@@ -361,7 +368,9 @@ def run_portfolio_backtest(
         symbol_exposure_out[row] = values / equity_out[row] if equity_out[row] > 0 else 0.0
         positions_out[row] = float((units > 0).sum())
         turnover_out[row] = traded / open_equity if open_equity > 0 else 0.0
-        bar_cost_out[row] = (sum(cost_paid.values()) - cost_before_bar) / open_equity if open_equity > 0 else 0.0
+        bar_cost_out[row] = (
+            (sum(cost_paid.values()) - cost_before_bar) / open_equity if open_equity > 0 else 0.0
+        )
 
     for j in range(k):  # mark open trades at the end without charging an exit that did not happen
         if units[j] > 0:

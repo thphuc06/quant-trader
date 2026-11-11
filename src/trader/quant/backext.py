@@ -16,6 +16,7 @@ from trader.quant.research import (
     asdict_costs,
     code_commit,
     cost_component_rates,
+    mark_supersedes,
     working_tree_dirty,
 )
 from trader.quant.stats import sharpe_per_period
@@ -48,6 +49,8 @@ def evaluate_backext(
     data_quality: dict[str, Any] | None = None,
     v2_params: dict[str, Any] | None = None,
     record: bool = True,
+    supersedes: dict[str, str] | None = None,
+    correction_defect: str = "",
 ) -> list[dict[str, Any]]:
     if sorted(hourly) != sorted(SYMBOLS):
         raise ValueError(f"protocol universe is {SYMBOLS}")
@@ -82,8 +85,9 @@ def evaluate_backext(
     binding_sharpes = [
         sharpe_per_period(framework_v2.daily_returns(primary).to_numpy()) for primary, _ in results.values()
     ]
-    raw_sharpes = [*registry.trial_sharpes(target_interval="1d"), *binding_sharpes]
-    raw_n = registry.trial_count() + len(results)
+    replaced = frozenset((supersedes or {}).values())
+    raw_sharpes = [*registry.trial_sharpes(target_interval="1d", exclude=replaced), *binding_sharpes]
+    raw_n = registry.trial_count(exclude=replaced) + len(results)
     commit, dirty = code_commit(root), working_tree_dirty(root)
     per_side_primary = sum(primary_rates.values())
 
@@ -130,6 +134,7 @@ def evaluate_backext(
             ],
         }
         runs.append(run)
+    mark_supersedes(runs, supersedes, correction_defect)
     if record:
         for run in runs:
             run["experiment_id"] = registry.record("portfolio_backtest", run)

@@ -153,6 +153,30 @@ def test_stop_distance_outside_policy_is_rejected_unless_clipped() -> None:
     assert clipped.trades and clipped.trades[0].stop_price == pytest.approx(90.0)
 
 
+@pytest.mark.parametrize("price", [7000.0, 61234.57, 0.3317, 1234.5678, 99.99, 3.0, 4321.0])
+def test_a_stop_clipped_to_the_policy_maximum_is_never_rejected_by_float_rounding(price: float) -> None:
+    # regression 2026-11-11: (entry - entry * 0.9) / entry * 100 can evaluate to 10.000000000000002
+    candles = {"A": frame([price] * 5)}
+    wide = {"A": signal([1] * 5, atr=price * 0.05)}  # 3 x 5% = 15% > 10% maximum
+    result = run(candles, wide, clip_stop_to_policy=True)
+    assert result.rejections["stop_distance_outside_policy"] == 0
+    assert result.trades and result.trades[0].stop_price == pytest.approx(price * 0.9)
+
+
+def test_superseded_records_are_replaced_not_added_to_the_trial_count(tmp_path: Path) -> None:
+    registry = ExperimentRegistry(tmp_path / "exp")
+    old = registry.record(
+        "portfolio_backtest", {"role": "candidate", "interval": "1d", "portfolio": {"sharpe_per_period": 0.1}}
+    )
+    assert registry.trial_count() == 1 and registry.trial_count(exclude=frozenset({old})) == 0
+    registry.record(
+        "portfolio_backtest",
+        {"role": "candidate", "interval": "1d", "portfolio": {"sharpe_per_period": 0.2}, "supersedes": [old]},
+    )
+    assert registry.trial_count() == 1 and registry.trial_sharpes() == pytest.approx([0.2])
+    assert registry.get(old) is not None  # the defective record is kept
+
+
 def test_missing_bar_neither_trades_nor_fills_and_marks_at_last_close() -> None:
     a = frame([100.0, 100.0, 101.0, 102.0, 103.0, 104.0])
     b = frame([50.0, 50.0, 50.0, 50.0, 50.0, 50.0]).drop(index=3).reset_index(drop=True)

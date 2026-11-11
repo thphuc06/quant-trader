@@ -238,6 +238,8 @@ def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
             root=desk.root,
             native_daily=native,
             data_quality=quality,
+            supersedes=_parse_supersedes(args.supersedes, desk.registry),
+            correction_defect=args.defect or "",
         )
     except Exception as exc:  # a failed run is still a recorded run
         experiment_id = desk.registry.record(
@@ -249,6 +251,25 @@ def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
         return 1
     _print([compact(run) for run in runs])
     return 0
+
+
+def _parse_supersedes(raw: str | None, registry: Any = None) -> dict[str, str] | None:
+    """'candidate:tsmom_trend_v1=exp_x,reference:tsmom_trend_v1=exp_y' -> mapping.
+
+    Each id must be an existing record with the same role and strategy, so a correction cannot hide another trial."""
+    if not raw:
+        return None
+    mapping = {}
+    for item in raw.split(","):
+        key, _, experiment_id = item.strip().partition("=")
+        if not key or not experiment_id.startswith("exp_"):
+            raise SystemExit(f"bad --supersedes item {item!r}; expected role:strategy=exp_id")
+        if registry is not None:
+            old = registry.get(experiment_id)
+            if old is None or f"{old.get('role')}:{old.get('strategy')}" != key:
+                raise SystemExit(f"{experiment_id} is not an existing {key} record")
+        mapping[key] = experiment_id
+    return mapping
 
 
 def cmd_research_backext_ingest(args: argparse.Namespace) -> int:
@@ -311,6 +332,7 @@ def cmd_research_daily_backext(args: argparse.Namespace) -> int:
         runs = evaluate_backext(
             hourly, policy=load_risk_policy(desk.root).policy, costs=desk.app.costs, registry=desk.registry,
             root=desk.root, native_daily=native, data_quality=quality, v2_params=desk.app.validation_v2,
+            supersedes=_parse_supersedes(args.supersedes, desk.registry), correction_defect=args.defect or "",
         )  # fmt: skip
     except Exception as exc:  # a failed run is still a recorded run
         experiment_id = desk.registry.record(
@@ -837,15 +859,25 @@ def build_parser() -> argparse.ArgumentParser:
         "research-backext-ingest",
         help="download 2017-2021 BTC/ETH candles for protocol H1 into a separate store",
     ).set_defaults(fn=cmd_research_backext_ingest)
-    sub.add_parser(
+    supersede_help = (
+        "corrected re-run after an implementation defect: comma-separated role:strategy=experiment_id "
+        "(the old records are kept and excluded from the DSR count)"
+    )
+    p = sub.add_parser(
         "research-daily-backext",
         help="run protocol H1 (frozen daily rules on 2017-2021 data) once under framework v2",
-    ).set_defaults(fn=cmd_research_daily_backext)
+    )
+    p.add_argument("--supersedes", help=supersede_help)
+    p.add_argument("--defect", help="one-line description of the implementation defect being corrected")
+    p.set_defaults(fn=cmd_research_daily_backext)
 
-    sub.add_parser(
+    p = sub.add_parser(
         "research-daily-baselines",
         help="run the preregistered daily-bar baselines portfolio protocol once (records 2 trials + 2 references)",
-    ).set_defaults(fn=cmd_research_daily_baselines)
+    )
+    p.add_argument("--supersedes", help=supersede_help)
+    p.add_argument("--defect", help="one-line description of the implementation defect being corrected")
+    p.set_defaults(fn=cmd_research_daily_baselines)
 
     p = sub.add_parser(
         "research-turnover-attribution",

@@ -28,6 +28,7 @@ from trader.quant.research import (
     code_commit,
     cost_component_rates,
     holdout_start_ms,
+    mark_supersedes,
     min_evaluation_trades,
     working_tree_dirty,
 )
@@ -118,6 +119,8 @@ def evaluate_daily_baselines(
     n_boot: int = 2000,
     evaluation_start: str = EVALUATION_START,
     record: bool = True,
+    supersedes: dict[str, str] | None = None,
+    correction_defect: str = "",
 ) -> list[dict[str, Any]]:
     """Run the frozen protocol once: 2 daily candidates (trials) and 2 hourly references (not trials)."""
     if sorted(hourly) != sorted(SYMBOL_PRIORITY):
@@ -227,10 +230,11 @@ def evaluate_daily_baselines(
 
     # DSR for the predeclared pair, counting every earlier trial plus both candidates (Sharpe in daily units).
     candidates = [r for r in runs if r["role"] == "candidate"]
-    historical = registry.trial_sharpes(target_interval="1d")
+    replaced = frozenset((supersedes or {}).values())
+    historical = registry.trial_sharpes(target_interval="1d", exclude=replaced)
     family = [float(r["portfolio"]["daily_sharpe_per_day"]) for r in candidates]
     all_sharpes = [s for s in [*historical, *family] if np.isfinite(s)]
-    n_trials = registry.trial_count() + len(candidates)
+    n_trials = registry.trial_count(exclude=replaced) + len(candidates)
     variance = float(np.var(all_sharpes, ddof=1)) if len(all_sharpes) >= 2 else 0.0
     min_trades = min_evaluation_trades(validation)
     for run, returns in zip(candidates, candidate_daily_returns, strict=True):
@@ -267,6 +271,7 @@ def evaluate_daily_baselines(
             "Stops wider than the policy's 10% maximum are placed at 10% (declared in the protocol).",
             "The development OOS has been viewed by many earlier trials; this result is exploratory, not confirmatory.",
         ]
+    mark_supersedes(runs, supersedes, correction_defect)
     if record:
         for run in runs:
             run["experiment_id"] = registry.record("portfolio_backtest", run)
