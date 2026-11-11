@@ -133,6 +133,9 @@ class PortfolioResult:
     rejections: Counter[str] = field(default_factory=Counter)
     interval: str = "1h"
     priority: list[str] = field(default_factory=list)
+    symbol_exposure: pd.DataFrame = field(default_factory=pd.DataFrame)  # position value / equity at bar close
+    asset_returns: pd.DataFrame = field(default_factory=pd.DataFrame)  # close-to-close, 0 on a missing bar
+    bar_cost: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))  # cost / equity at bar open
 
 
 def _aligned(frame: pd.DataFrame, column: str | pd.Series, grid: np.ndarray) -> np.ndarray:
@@ -206,6 +209,9 @@ def run_portfolio_backtest(
     exposure_out = np.zeros(m)
     positions_out = np.zeros(m)
     turnover_out = np.zeros(m)
+    symbol_exposure_out = np.zeros((m, k))  # position value / equity at each bar close
+    asset_return_out = np.zeros((m, k))  # close-to-close return vs the last known close (0 on a missing bar)
+    bar_cost_out = np.zeros(m)  # modeled cost paid in the bar / equity at the bar open
     cost_paid = dict.fromkeys(cost_components, 0.0)
     rejections: Counter[str] = Counter()
     trades: list[PortfolioTrade] = []
@@ -256,6 +262,7 @@ def run_portfolio_backtest(
         mark_open = np.where(has_bar, opens[:, i], last_close)
         open_equity = cash + float(np.nansum(units * mark_open))
         traded = 0.0
+        cost_before_bar = sum(cost_paid.values())
 
         # 1. exits on a flat signal (and reset the post-stop block)
         for j in range(k):
@@ -343,13 +350,18 @@ def run_portfolio_backtest(
                 blocked[j] = True
 
         # 4. mark to market at the close
+        has_close = np.isfinite(closes[:, i]) & np.isfinite(last_close) & (last_close > 0)
+        asset_return_out[row] = np.where(has_close, closes[:, i] / np.where(has_close, last_close, 1.0) - 1.0, 0.0)
         last_close = np.where(np.isfinite(closes[:, i]), closes[:, i], last_close)
-        held_value = float(np.nansum(units * last_close))
+        values = np.nan_to_num(units * last_close)
+        held_value = float(values.sum())
         equity_out[row] = cash + held_value
         peak = max(peak, equity_out[row])
         exposure_out[row] = held_value / equity_out[row] if equity_out[row] > 0 else 0.0
+        symbol_exposure_out[row] = values / equity_out[row] if equity_out[row] > 0 else 0.0
         positions_out[row] = float((units > 0).sum())
         turnover_out[row] = traded / open_equity if open_equity > 0 else 0.0
+        bar_cost_out[row] = (sum(cost_paid.values()) - cost_before_bar) / open_equity if open_equity > 0 else 0.0
 
     for j in range(k):  # mark open trades at the end without charging an exit that did not happen
         if units[j] > 0:
@@ -382,6 +394,9 @@ def run_portfolio_backtest(
         rejections=rejections,
         interval=interval,
         priority=symbols,
+        symbol_exposure=pd.DataFrame(symbol_exposure_out, columns=symbols),
+        asset_returns=pd.DataFrame(asset_return_out, columns=symbols),
+        bar_cost=pd.Series(bar_cost_out),
     )
 
 

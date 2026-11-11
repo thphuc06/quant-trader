@@ -182,6 +182,7 @@ class AppConfig(BaseModel):
     strategies: dict[str, dict[str, float]] = Field(default_factory=dict)
     backtest: dict[str, Any] = Field(default_factory=dict)
     validation: dict[str, float] = Field(default_factory=dict)
+    validation_v2: dict[str, Any] = Field(default_factory=dict)
     ml: dict[str, Any] = Field(default_factory=dict)
     research_budget: dict[str, int] = Field(default_factory=dict)
     news: dict[str, int] = Field(default_factory=dict)

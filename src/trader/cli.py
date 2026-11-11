@@ -22,7 +22,7 @@ import numpy as np
 from trader.config import TradingMode
 from trader.desk import TradingDesk
 from trader.domain import jsonable
-from trader.timeutil import iso, utc_now
+from trader.timeutil import from_ms, iso, utc_now
 
 
 def _print(value: Any) -> None:
@@ -243,6 +243,79 @@ def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
         experiment_id = desk.registry.record(
             "portfolio_backtest",
             {"status": "failed", "role": "candidate", "protocol": PROTOCOL_PATH,
+             "reason": f"{type(exc).__name__}: {exc}", "holdout": {"status": "locked"}},
+        )  # fmt: skip
+        print(f"FAILED [{experiment_id}]: {type(exc).__name__}: {exc}")
+        return 1
+    _print([compact(run) for run in runs])
+    return 0
+
+
+def cmd_research_backext_ingest(args: argparse.Namespace) -> int:
+    """Download 2017-2021 BTC/ETH candles for protocol H1 into a separate store (main store untouched)."""
+    from trader.marketdata import MarketData
+    from trader.quant.backext import DATA_START, EVALUATION_END, STORE_DIRNAME, SYMBOLS, _ms
+    from trader.storage import CandleStore
+    from trader.storage.candles import check_quality
+
+    desk = TradingDesk()
+    store = CandleStore(desk.data_dir / STORE_DIRNAME)
+    market = MarketData(desk.market.source, store)
+    end_ms = _ms(EVALUATION_END)
+    days = (end_ms - _ms(DATA_START)) // 86_400_000 + 1
+    report = {}
+    for symbol in SYMBOLS:
+        for interval in ("1h", "1d"):
+            frame = market.backfill(symbol, interval, days, now_ms=end_ms)
+            frame = frame[frame["open_time"] < end_ms]
+            quality = check_quality(frame, symbol, interval)
+            report[f"{symbol} {interval}"] = {
+                "rows": len(frame),
+                "first": iso(from_ms(int(frame["open_time"].min()))) if len(frame) else None,
+                "last": iso(from_ms(int(frame["open_time"].max()))) if len(frame) else None,
+                "gaps": quality.gaps,
+                "missing_bars": quality.missing_bars,
+                "issues": quality.issues,
+            }
+    _print(report)
+    return 0
+
+
+def cmd_research_daily_backext(args: argparse.Namespace) -> int:
+    """Run protocol H1 (research/protocols/daily-baselines-backext-v1.md) once on the separate 2017-2021 store."""
+    from trader.config import load_risk_policy
+    from trader.quant.backext import (
+        EVALUATION_END,
+        PROTOCOL_PATH,
+        STORE_DIRNAME,
+        SYMBOLS,
+        _ms,
+        compact,
+        evaluate_backext,
+    )
+    from trader.storage import CandleStore
+    from trader.storage.candles import check_quality
+
+    desk = TradingDesk()
+    store = CandleStore(desk.data_dir / STORE_DIRNAME)
+    end_ms = _ms(EVALUATION_END)
+    try:
+        hourly, native, quality = {}, {}, {}
+        for symbol in SYMBOLS:
+            frame = store.load(symbol, "1h")
+            if frame.empty:
+                raise ValueError(f"no 2017-2021 candles for {symbol}; run `trader research-backext-ingest` first")
+            hourly[symbol] = frame[frame["open_time"] < end_ms].reset_index(drop=True)
+            native[symbol] = store.load(symbol, "1d")
+            quality[symbol] = check_quality(hourly[symbol], symbol, "1h").as_dict()
+        runs = evaluate_backext(
+            hourly, policy=load_risk_policy(desk.root).policy, costs=desk.app.costs, registry=desk.registry,
+            root=desk.root, native_daily=native, data_quality=quality, v2_params=desk.app.validation_v2,
+        )  # fmt: skip
+    except Exception as exc:  # a failed run is still a recorded run
+        experiment_id = desk.registry.record(
+            "portfolio_backtest",
+            {"status": "failed", "role": "candidate", "protocol": PROTOCOL_PATH, "framework": "v2",
              "reason": f"{type(exc).__name__}: {exc}", "holdout": {"status": "locked"}},
         )  # fmt: skip
         print(f"FAILED [{experiment_id}]: {type(exc).__name__}: {exc}")
@@ -759,6 +832,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--symbol")
     p.add_argument("--strategy", choices=["tsmom_trend_v1", "donchian_breakout_v1"])
     p.set_defaults(fn=cmd_research_volatility_daily)
+
+    sub.add_parser(
+        "research-backext-ingest",
+        help="download 2017-2021 BTC/ETH candles for protocol H1 into a separate store",
+    ).set_defaults(fn=cmd_research_backext_ingest)
+    sub.add_parser(
+        "research-daily-backext",
+        help="run protocol H1 (frozen daily rules on 2017-2021 data) once under framework v2",
+    ).set_defaults(fn=cmd_research_daily_backext)
 
     sub.add_parser(
         "research-daily-baselines",

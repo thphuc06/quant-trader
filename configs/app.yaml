@@ -87,6 +87,19 @@ validation:
   cost_stress_multiplier: 2.0
   max_ece: 0.05
 
+# Framework v2 (research/validation-framework-v2.md, approved 2026-11-11) for protocols registered after that date.
+# Definitions live in src/trader/quant/framework_v2.py; only thresholds are configured here.
+validation_v2:
+  min_trades: 30            # G-span; fewer trades is at most INCONCLUSIVE, never REJECTED for that reason
+  timing_p: 0.10            # G-timing: circular-shift test vs exposure-matched buy-and-hold
+  timing_shifts: 2000
+  timing_margin_days: 30
+  timing_seed: 7
+  ci: 0.90                  # G-ci: lowest lower bound across the bootstrap blocks must be > 0
+  bootstrap_blocks: [5, 10, 20]
+  n_boot: 2000
+  min_dsr: 0.5              # G-dsr with N bound to the sample (see the framework)
+
 ml:
   use_for_decisions: false
   horizon_bars: 24

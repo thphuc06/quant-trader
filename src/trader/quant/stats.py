@@ -131,6 +131,62 @@ def daily_bootstrap_sensitivity(
     }
 
 
+def timing_skill_test(
+    exposure: np.ndarray,
+    asset_returns: np.ndarray,
+    period_cost: np.ndarray,
+    per_side_cost: float,
+    n_shifts: int = 2000,
+    margin: int = 30,
+    seed: int = 7,
+    periods_per_year: float = 365.0,
+) -> dict[str, Any]:
+    """Framework v2 G-timing: did the timing of positions beat the same average exposure held passively?
+
+    exposure[t, s]: fraction of equity in symbol s HELD DURING period t (i.e. at the close of t-1).
+    asset_returns[t, s]: return of symbol s over period t. period_cost[t]: modeled cost in t as a fraction of equity.
+    Strategy g = sum_s e*a - c; benchmark b = sum_s mean(e_s)*a_s with one round trip charged at both ends.
+    Null: circular shifts of the exposure AND cost series by the same offset u in [margin, T - margin], which keeps
+    turnover, average exposure and cross-symbol alignment. p = (1 + #{D_k >= D}) / (1 + K).
+    """
+    e = np.nan_to_num(np.asarray(exposure, dtype=float))
+    a = np.nan_to_num(np.asarray(asset_returns, dtype=float))
+    c = np.nan_to_num(np.asarray(period_cost, dtype=float))
+    if e.ndim != 2 or e.shape != a.shape or c.shape != (e.shape[0],):
+        raise ValueError("exposure and asset_returns must be T x S and period_cost length T")
+    t_len = e.shape[0]
+    if t_len < 2 * margin + 2:
+        return {"status": "insufficient_data", "periods": t_len, "p_value": float("nan")}
+    mean_exposure = e.mean(axis=0)
+    benchmark = (mean_exposure * a).sum(axis=1)
+    round_trip = per_side_cost * float(mean_exposure.sum())
+    benchmark[0] -= round_trip
+    benchmark[-1] -= round_trip
+    observed = float(((e * a).sum(axis=1) - c).mean() - benchmark.mean())
+    rng = np.random.default_rng(seed)
+    offsets = rng.integers(margin, t_len - margin + 1, size=n_shifts)
+    null = np.array(
+        [((np.roll(e, u, axis=0) * a).sum(axis=1) - np.roll(c, u)).mean() - benchmark.mean() for u in offsets]
+    )
+    p_value = float((1 + int((null >= observed).sum())) / (1 + n_shifts))
+    return {
+        "status": "ok",
+        "periods": t_len,
+        "statistic_annualized": observed * periods_per_year,
+        "p_value": p_value,
+        "null_quantiles_annualized": {
+            q: float(np.quantile(null, q / 100) * periods_per_year) for q in (5, 50, 95)
+        },
+        "mean_exposure_by_symbol": [float(x) for x in mean_exposure],
+        "strategy_reconstructed_annualized": float(((e * a).sum(axis=1) - c).mean() * periods_per_year),
+        "benchmark_annualized": float(benchmark.mean() * periods_per_year),
+        "n_shifts": n_shifts,
+        "shift_margin": margin,
+        "seed": seed,
+        "note": "reconstructed from period exposures; intraday stop fills are ignored in both the observed and null",
+    }
+
+
 def paired_sharpe_difference_ci(
     baseline: np.ndarray,
     challenger: np.ndarray,
