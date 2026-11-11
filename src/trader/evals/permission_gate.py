@@ -32,7 +32,7 @@ def decision_for(tool_name: str, tool_input: dict[str, Any] | None) -> dict[str,
     }
 
 
-@gate.tool()
+@gate.tool(structured_output=False)  # Claude Code expects exactly one text block, no structuredContent wrapper
 def decide(tool_name: str, input: dict[str, Any] | None = None, tool_use_id: str | None = None) -> str:
     """Answer one permission prompt. Returns the JSON text Claude Code expects ({behavior, updatedInput|message})."""
     return json.dumps(decision_for(tool_name, input))
