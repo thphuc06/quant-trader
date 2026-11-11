@@ -253,6 +253,15 @@ class EvidenceItem(Strict):
     observed_at: str | None = None
 
 
+class Forecast(Strict):
+    """A scoreable view (research/protocols/llm-decision-eval-v1.md): the probability that the close of the last closed
+    1h bar ``horizon_hours`` after the report is recorded is above the close of the last closed 1h bar at recording.
+    0.5 means no view. Reference and outcome prices are taken from stored candles by the scorer, never from here."""
+
+    horizon_hours: int = Field(default=24, ge=1, le=168)
+    probability_up: float = Field(ge=0.0, le=1.0)
+
+
 class DecisionReport(Strict):
     decision_id: str = Field(default_factory=lambda: new_id("dec"))
     trace_id: str = Field(default_factory=lambda: new_id("trace"))
@@ -282,6 +291,7 @@ class DecisionReport(Strict):
     action_requested: Literal["NONE", "REQUEST_RISK_VALIDATION"] = "NONE"
     human_approval_required: bool = True
     reason_for_no_trade: str | None = None
+    forecast: Forecast | None = None
 
     @field_validator("symbol")
     @classmethod

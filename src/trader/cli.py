@@ -253,6 +253,14 @@ def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decision_eval_score(args: argparse.Namespace) -> int:
+    """Score recorded LLM forecasts against stored candles (research/protocols/llm-decision-eval-v1.md)."""
+    from trader.evals.decisions import score_main
+
+    _print(score_main(TradingDesk()))
+    return 0
+
+
 def cmd_shadow_pnl(args: argparse.Namespace) -> int:
     """Print the forward paper P&L of the logged baseline signals (see trader.shadow_pnl)."""
     from trader.shadow_pnl import evaluate_shadow
@@ -855,6 +863,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "shadow-pnl", help="forward paper P&L of the logged baseline signals under the risk policy (no orders)"
     ).set_defaults(fn=cmd_shadow_pnl)
+
+    sub.add_parser(
+        "decision-eval-score", help="score recorded LLM 24h forecasts vs climatology and the mechanical baseline"
+    ).set_defaults(fn=cmd_decision_eval_score)
 
     p = sub.add_parser("backtest", help="evaluate a strategy; every run is logged as a trial")
     p.add_argument("strategy")

@@ -30,6 +30,8 @@ Keep a list of every `evidence_id` you receive. Note any status other than `ok` 
 - If you are considering a long: `calculate_position_risk` with a stop you can justify from the evidence (it stores
   nothing). Optionally ask the `risk-reviewer` subagent to argue against the setup.
 - `SHORT_CANDIDATE` is analysis only: spot is long/flat.
+- State a 24h `forecast.probability_up` (0.5 = no view). It is scored later against the base rate, so keep it
+  calibrated; a strong number needs strong, cited evidence. It never overrides the no-trade default.
 
 ## 3. Record the decision (always)
 

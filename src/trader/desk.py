@@ -949,6 +949,7 @@ class TradingDesk:
             "trace_id": parsed.trace_id,
             "decision": parsed.decision.value,
             "stored": True,
+            "forecast": payload.get("forecast"),  # echoed as validated, for the decision-eval ledger
         }
         return self._envelope("record_decision_report", {"symbol": parsed.symbol}, data)
 

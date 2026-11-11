@@ -133,3 +133,26 @@ schtasks /Create /TN "ClaudeTrader\Derivatives" /SC HOURLY /ST 00:07 /F /TR "cmd
 ```
 
 `Last Result` 0 = every symbol and both series ok; 1 = at least one part failed (the next run retries it).
+
+## 11. LLM decision evaluation (scheduled job, spends Claude quota)
+
+`scripts/decision_eval.py` starts one fresh headless Claude Code session per universe symbol (`claude -p`, Sonnet,
+medium effort) in the **trader role, PAPER mode and a separate data directory** (`data/decision_eval/`). Each session
+runs `/analyze-symbol` and records a decision report with a 24h `forecast.probability_up`. Only
+`record_decision_report` is allowed beyond the read-only tools; every order tool is denied, so these sessions never
+trade and never touch your Demo account or the main database. Forecasts go to
+`research/decision-eval/forecasts.jsonl`; raw transcripts to `reports/decision-eval/` (not committed).
+`python -m trader decision-eval-score` scores them (no Claude calls). The rules are fixed in
+`research/protocols/llm-decision-eval-v1.md`: evaluation once at 180 run-days, harm check from day 60.
+
+Register it once a day at a fixed time (the protocol's primary sample is only these scheduled runs):
+
+```
+schtasks /Create /TN "ClaudeTrader\DecisionEval" /SC DAILY /ST 07:10 /F /TR "cmd /c cd /d C:\ClaudeTrader && .venv\Scripts\python.exe scripts\decision_eval.py --sample scheduled >> data\decision-eval.out 2>&1"
+```
+
+- `claude` must be on PATH for your user and logged in; the task runs only while you are logged on.
+- Each session has a `--max-budget-usd 3` safety cap; four symbols run one after another (roughly 5–15 minutes).
+- Ad-hoc runs (`scripts/decision_eval.py` without `--sample scheduled`) are recorded as `manual` and never enter
+  the primary sample.
+- Your own trader sessions now also record a forecast; those are scored separately as the `operator` sample.

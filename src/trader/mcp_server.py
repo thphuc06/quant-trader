@@ -305,6 +305,9 @@ def record_decision_report(report: dict[str, Any]) -> dict[str, Any]:
         source_freshness: object {name: timestamp string}
         data_quality_status: ok|degraded|unknown; llm_confidence_label: low|medium|high;
         action_requested: NONE|REQUEST_RISK_VALIDATION.
+        forecast: {horizon_hours: 24, probability_up: 0..1} = your probability that this symbol's last closed 1h
+          close, 24h after this report is recorded, is above the last closed 1h close now; 0.5 = no view. It is
+          scored later against the base rate; be calibrated, not bold.
       fixed: expected_net_return null, human_approval_required true.
     NO_TRADE needs reason_for_no_trade. LONG/SHORT_CANDIDATE need quantitative_evidence, counter_evidence,
     uncertainties, invalidation_conditions and stop_plan. Only cite evidence ids returned by tools in this session.
