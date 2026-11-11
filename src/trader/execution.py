@@ -1055,7 +1055,8 @@ class ExecutionService:
                 role,
                 result.symbol,
                 result.side.value,
-                result.order_type.value,
+                # OrderType only models intent order types; a protective stop is a STOP_LOSS on the exchange
+                STOP_ORDER_TYPE if role == "stop" else result.order_type.value,
                 result.status,
                 format(result.requested_qty, "f"),
                 format(result.executed_qty, "f"),

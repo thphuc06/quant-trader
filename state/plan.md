@@ -14,7 +14,14 @@
 - Open decisions for the operator: (1) register the shadow-log task; (2) whether to add the two daily rules to the
   shadow log as forward observation (a plan change); (3) whether the 10% drawdown floor interacting with hourly
   baselines needs a policy review (both hourly references tripped it in the portfolio backtest).
-- Later: supervised Binance Demo cycle (needs demo keys), news provider key.
+- Binance Demo, 2026-11-11, **done**: Ed25519 signing + operator-only `keygen` (`e1459ce`), doctor signed read
+  (`4488ad5`), one supervised cycle (BUY int_0e15cbee → stop PROTECTED → SELL int_917a17c4 via cancelReplace).
+  Bug found and fixed: sub-step remainder after a full exit (base-asset fee) was flagged UNPROTECTED and tripped the
+  kill switch; now written off as dust (`250be48`). Stop orders are recorded as `STOP_LOSS` in the orders table.
+  Kill switch released by the operator 00:17Z. Live stays locked.
+- Waiting on: Fable research on evaluation of low-frequency strategies (gate review before any new hypothesis);
+  shadow-log task registration; push of the local commits.
+- Later: news provider key.
 
 ---
 

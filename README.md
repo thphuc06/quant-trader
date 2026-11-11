@@ -14,7 +14,7 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 |---|---|
 | Research & kiến trúc ([research/](research/), [architecture/](architecture/), 5 ADR, threat model) | Xong |
 | Core: config an toàn mặc định, domain model (Decimal), SQLite + journal append-only có hash chain, Parquet candles | Xong, có test |
-| Binance: REST public + signed (tập endpoint cố định, không retry mù lệnh), filters, kline stream, stop `STOP_LOSS`, thoát lệnh bằng `cancelReplace` | Market data đã chạy thật; **order adapter Demo/Live mới chỉ test với HTTP giả lập** (chưa có demo key) |
+| Binance: REST public + signed (tập endpoint cố định, không retry mù lệnh), filters, kline stream, stop `STOP_LOSS`, thoát lệnh bằng `cancelReplace` | Market data đã chạy thật. Ký request HMAC hoặc Ed25519 (key tự tạo, lệnh `keygen` chỉ operator chạy). **Đã chạy một chu trình Binance Demo có giám sát** (2026-11-11): BUY → stop `PROTECTED` → SELL qua `cancelReplace`; Live chưa thử |
 | Quant: features nhân quả, regime, 2 baseline strategy, backtester, PSR/DSR/PBO, experiment registry, holdout khóa | Xong, có test |
 | ML: triple-barrier, purged walk-forward, calibration | Xong; model **không** dùng cho quyết định |
 | Risk engine + execution: sizing phía server, intent → duyệt → re-validate → order → reconcile, kill switch, khóa live | Xong, có test (paper chạy end-to-end với giá thật) |
@@ -29,7 +29,20 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | Backtest danh mục (`quant/portfolio.py`), bootstrap lợi nhuận ngày (block 5/10/20), trial accounting cho DSR | Xong, có test (sizing khớp `risk.compute_sizing`) |
 | Baseline khung ngày (protocol đăng ký trước, 1 lần chạy) | Turnover giảm ~95%, nhưng không qua gate số lệnh / CI / DSR → inconclusive, không paper |
 
-Kiểm tra gần nhất (2026-11-11): 322 test pass, `ruff` và `mypy` sạch.
+Kiểm tra gần nhất (2026-11-11): 342 test pass, `ruff` và `mypy` sạch.
+
+### Chu trình Binance Demo đầu tiên (2026-11-11)
+
+Mục đích là kiểm thử execution, không phải tín hiệu giao dịch. BTCUSDT, khối lượng khoảng 153 USDT (3% vốn demo):
+- Intent qua 28 check rủi ro. Operator duyệt bằng CLI, lời duyệt dùng một lần. Backend kiểm tra lại trước khi gửi
+  lệnh. Lệnh MARKET khớp ở giá ask lúc gửi, rồi stop `STOP_LOSS` được đặt và vị thế `PROTECTED`. Thoát lệnh bằng
+  `cancelReplace` trong một request.
+- Slippage đo được trên Demo khoảng 0–1 bps (giả định 2 bps). Sổ lệnh Demo có thể khác Live, nên chưa dùng số này để
+  thay giả định chi phí. Lỗ cả vòng −0.38 USDT, chủ yếu là phí.
+- **Lỗi tìm ra và đã sửa:** phí vào lệnh bị trừ bằng BTC, nên lệnh bán toàn bộ để lại phần lẻ nhỏ hơn bước khối lượng
+  của sàn (0.00000792 BTC). Phần này không đặt được stop (lỗi `-1013`), bị đánh dấu `UNPROTECTED` và làm kill switch tự
+  bật. Giờ phần lẻ như vậy được ghi là `dust_below_exchange_minimum`, không bật kill switch. Kill switch do operator gỡ.
+- Trang Demo không hiện secret của key HMAC cho operator, nên dùng key Ed25519 tự tạo; Binance chấp nhận.
 
 ## Kết quả nghiên cứu thật (development period, sau phí)
 
@@ -238,8 +251,8 @@ data/              runtime (git-ignored): candles, SQLite, models
 ## Việc tiếp theo
 
 1. Không tune thêm volatility band trên development OOS đã xem; tiếp tục giữ holdout khóa.
-2. Chạy thử một chu trình Binance Demo có giám sát (vào lệnh → stop `PROTECTED` → `sync_positions` → thoát bằng SELL
-   intent) để kiểm chứng execution ngoài môi trường giả lập; đo fill/slippage thật.
+2. Chu trình Binance Demo đã xong (xem ở trên). Live vẫn khóa; nếu muốn có số slippage đáng tin hơn thì cần thêm vài
+   vòng Demo trên các symbol khác, nhưng Demo không thay được dữ liệu fill thật.
 3. Operator đăng ký lịch chạy `trader shadow-log` mỗi giờ (docs §9) để bắt đầu tích lũy dữ liệu forward sạch.
 4. Quyết định của operator: có thêm hai luật khung ngày vào shadow log để quan sát forward hay không (backtest
    danh mục, bootstrap ngày và giả thuyết khung 1d đã xong; kết quả inconclusive, xem ở trên).

@@ -813,7 +813,8 @@ def test_exit_uses_cancel_replace_and_closes_cleanly(repo_copy: Path, source: Fa
     result = desk.execute_approved_trade(sell_id)
     assert result["status"] == "ok" and result["data"]["closed"]["remaining"] == "0"
     assert desk.execution.positions() == [] and not desk.execution.kill_switch()["engaged"]
-    assert desk.db.query("SELECT status FROM orders WHERE client_order_id=?", (stop_id,))[0]["status"] == "CANCELED"
+    stop_row = desk.db.query("SELECT status, order_type FROM orders WHERE client_order_id=?", (stop_id,))[0]
+    assert stop_row == {"status": "CANCELED", "order_type": "STOP_LOSS"}
     assert "cancel_replace_result" in [e["event_type"] for e in desk.db.journal_events(sell_id)]
 
 
