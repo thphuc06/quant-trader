@@ -1,0 +1,470 @@
+{
+  "all_gates_passed": false,
+  "code_commit": "4919c5f",
+  "correction": {
+    "defect": "clipped 10% stops rejected by float rounding (fixed in 4919c5f)",
+    "note": "Corrected re-run of the same frozen configuration after an implementation defect; the superseded record is kept and excluded from the DSR trial count. The defect was found after the first results were seen."
+  },
+  "cost_model_bps_per_side": {
+    "fee": 10.0,
+    "half_spread": 1.0,
+    "slippage": 2.0
+  },
+  "created_at": "2026-11-11T00:44:31Z",
+  "data": {
+    "aggregation": {
+      "BNBUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "status": "no_native_daily_klines"
+        }
+      },
+      "BTCUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "days_compared": 136,
+          "max_relative_diff": 0.0,
+          "status": "ok"
+        }
+      },
+      "ETHUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "days_compared": 136,
+          "max_relative_diff": 0.0,
+          "status": "ok"
+        }
+      },
+      "SOLUSDT": {
+        "complete_days": 1458,
+        "incomplete_days_dropped": [
+          "2021-11-11T00:00:00Z",
+          "2023-03-24T00:00:00Z"
+        ],
+        "native_1d_check": {
+          "status": "no_native_daily_klines"
+        }
+      }
+    },
+    "data_quality": {
+      "BNBUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "BNBUSDT"
+      },
+      "BTCUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "BTCUSDT"
+      },
+      "ETHUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "ETHUSDT"
+      },
+      "SOLUSDT": {
+        "checked_window_bars": null,
+        "duplicates": 0,
+        "first_open_time_ms": 1636624800000,
+        "gaps": 1,
+        "historical_gaps": 0,
+        "historical_missing_bars": 0,
+        "interval": "1h",
+        "invalid_rows": 0,
+        "issues": [
+          "1 gaps, 1 missing bars"
+        ],
+        "last_open_time_ms": 1762729200000,
+        "missing_bars": 1,
+        "notes": [],
+        "out_of_order": false,
+        "rows": 35029,
+        "staleness_bars": null,
+        "status": "degraded",
+        "symbol": "SOLUSDT"
+      }
+    },
+    "evaluation_end_exclusive": "2025-11-10",
+    "evaluation_start": "2023-11-12T00:00:00Z",
+    "holdout_start": "2025-11-10",
+    "source": "stored Binance Spot 1h candles; daily = complete UTC days aggregated from them"
+  },
+  "experiment_id": "exp_4a288b0422184f5c96d4",
+  "exploratory_only_oos_previously_viewed": true,
+  "gates_provisional": {
+    "dsr_at_least_min": false,
+    "enough_trades": false,
+    "positive_at_stressed_costs": true,
+    "sharpe_ci_above_zero": false,
+    "turnover_cut_at_least_half": true
+  },
+  "holdout": {
+    "status": "locked"
+  },
+  "hypothesis": "tsmom_trend_v1 on UTC-daily bars halves portfolio turnover vs 1h and passes all gates",
+  "interval": "1d",
+  "kind": "portfolio_backtest",
+  "limitations": [
+    "Universe chosen with hindsight (large caps that survived); results are conditional on that selection.",
+    "Fees, spread and slippage are provisional assumptions, not measured fills.",
+    "No partial fills, latency, queue position or market impact; fills at next bar open.",
+    "Intrabar order of high/low is unknown; stops are assumed hit when the low touches them.",
+    "A backtest is not evidence of future profitability. Passing gates justifies paper trading only.",
+    "Daily bars aggregated from 1h candles; incomplete UTC days are dropped, so lookbacks span an extra day near a gap.",
+    "Positions are not resized after entry; the fixed BTC>ETH>SOL>BNB tie-break favours earlier symbols.",
+    "Stops wider than the policy's 10% maximum are placed at 10% (declared in the protocol).",
+    "The development OOS has been viewed by many earlier trials; this result is exploratory, not confirmatory."
+  ],
+  "params": {
+    "atr_stop_mult": 3.0,
+    "ema_fast": 20,
+    "ema_slow": 100,
+    "mom_lookback": 90
+  },
+  "portfolio": {
+    "annualized_volatility": 0.05877113185345595,
+    "avg_bars_held": 23.675,
+    "avg_loss": -0.048737478692637386,
+    "avg_win": 0.15826706823333733,
+    "bars": 729,
+    "binding_constraints": {
+      "risk_budget": 40
+    },
+    "cagr": 0.031139642266510892,
+    "calmar": 0.43776254588338637,
+    "daily_bootstrap": {
+      "by_block": {
+        "10d": {
+          "block_days": 10,
+          "sharpe_ci_annualized": [
+            -0.5232946496859899,
+            1.6314176265873277
+          ],
+          "total_return_ci": [
+            -0.06453222176410503,
+            0.20621852377220423
+          ]
+        },
+        "20d": {
+          "block_days": 20,
+          "sharpe_ci_annualized": [
+            -0.5393943419189204,
+            1.6945678314712902
+          ],
+          "total_return_ci": [
+            -0.06392331980360988,
+            0.21521613151736102
+          ]
+        },
+        "5d": {
+          "block_days": 5,
+          "sharpe_ci_annualized": [
+            -0.5308610505015116,
+            1.6149613549715944
+          ],
+          "total_return_ci": [
+            -0.06393758759007828,
+            0.2038643022393559
+          ]
+        }
+      },
+      "ci_level": 0.9,
+      "days": 729,
+      "most_conservative_sharpe_lower": -0.5393943419189204,
+      "n_boot": 2000,
+      "sharpe_annualized": 0.5511205473653731,
+      "total_return": 0.0631596391783189
+    },
+    "daily_cvar_95": -0.007303544156581989,
+    "daily_sharpe_per_day": 0.028846967872204927,
+    "entry_rejections": {
+      "cooldown_after_loss": 3,
+      "max_open_positions": 731
+    },
+    "evaluation_end_exclusive": "2025-11-10T00:00:00Z",
+    "evaluation_start": "2023-11-12T00:00:00Z",
+    "exit_reasons": {
+      "signal": 34,
+      "stop": 6
+    },
+    "expectancy_per_trade": 0.013363885385155044,
+    "exposure": 0.09809569499970441,
+    "max_consecutive_losses": 9,
+    "max_drawdown": -0.07113363753784008,
+    "max_drawdown_duration_bars": 606,
+    "max_drawdown_recovery_bars": 606,
+    "max_gross_exposure": 0.18250979167305925,
+    "mean_gross_exposure": 0.09809569499970441,
+    "mean_open_positions": 1.4897119341563787,
+    "modeled_cost_bps_initial_equity": {
+      "fee": 42.92049525751465,
+      "half_spread": 4.292049525751466,
+      "slippage": 8.584099051502932,
+      "total": 55.79664383476905
+    },
+    "modeled_cost_bps_initial_equity_per_year": 27.936591220426205,
+    "net_total_return": 0.0631596391783189,
+    "payoff_ratio": 3.2473380338660447,
+    "profit_factor": 1.3917163002283053,
+    "share_of_time_invested": 0.7956104252400549,
+    "sharpe": 0.5511205473653731,
+    "sharpe_per_period": 0.028846967872204927,
+    "sortino": 0.8038840097382081,
+    "tie_break": "fixed priority order BTCUSDT > ETHUSDT > SOLUSDT > BNBUSDT",
+    "trades": 40,
+    "trades_by_symbol": {
+      "BNBUSDT": {
+        "net_pnl_initial_equity": -0.019779405765783145,
+        "trades": 15,
+        "win_rate": 0.2
+      },
+      "BTCUSDT": {
+        "net_pnl_initial_equity": 0.07096288330751252,
+        "trades": 9,
+        "win_rate": 0.5555555555555556
+      },
+      "ETHUSDT": {
+        "net_pnl_initial_equity": 0.0034736207573976274,
+        "trades": 7,
+        "win_rate": 0.2857142857142857
+      },
+      "SOLUSDT": {
+        "net_pnl_initial_equity": -0.022564981904594356,
+        "trades": 9,
+        "win_rate": 0.2222222222222222
+      }
+    },
+    "trades_open_at_end": 1,
+    "trades_per_year": 20.027434842249658,
+    "turnover_per_year": 2.060026130809783,
+    "win_rate": 0.3,
+    "worst_day": -0.01736981529276982,
+    "years": 2.0
+  },
+  "portfolio_at_stressed_costs": {
+    "annualized_volatility": 0.05736458770771282,
+    "avg_bars_held": 23.675,
+    "avg_loss": -0.047959708307904705,
+    "avg_win": 0.18680932941884862,
+    "bars": 729,
+    "binding_constraints": {
+      "risk_budget": 40
+    },
+    "cagr": 0.027593536375611682,
+    "calmar": 0.3788481248777178,
+    "daily_bootstrap": {
+      "by_block": {
+        "10d": {
+          "block_days": 10,
+          "sharpe_ci_annualized": [
+            -0.5843904580097806,
+            1.58361450171172
+          ],
+          "total_return_ci": [
+            -0.06757037859585914,
+            0.19510491747628708
+          ]
+        },
+        "20d": {
+          "block_days": 20,
+          "sharpe_ci_annualized": [
+            -0.6011584567196733,
+            1.6539775627589963
+          ],
+          "total_return_ci": [
+            -0.0683243793149215,
+            0.2039970312852959
+          ]
+        },
+        "5d": {
+          "block_days": 5,
+          "sharpe_ci_annualized": [
+            -0.5846156665618872,
+            1.5565263072825872
+          ],
+          "total_return_ci": [
+            -0.06752912846512127,
+            0.1924307120143026
+          ]
+        }
+      },
+      "ci_level": 0.9,
+      "days": 729,
+      "most_conservative_sharpe_lower": -0.6011584567196733,
+      "n_boot": 2000,
+      "sharpe_annualized": 0.5031542840042155,
+      "total_return": 0.05586973209674784
+    },
+    "daily_cvar_95": -0.007132812895454082,
+    "daily_sharpe_per_day": 0.02633629890015569,
+    "entry_rejections": {
+      "cooldown_after_loss": 3,
+      "max_open_positions": 731
+    },
+    "evaluation_end_exclusive": "2025-11-10T00:00:00Z",
+    "evaluation_start": "2023-11-12T00:00:00Z",
+    "exit_reasons": {
+      "signal": 34,
+      "stop": 6
+    },
+    "expectancy_per_trade": 0.010732551123783626,
+    "exposure": 0.09565657920009156,
+    "max_consecutive_losses": 18,
+    "max_drawdown": -0.07283535159245713,
+    "max_drawdown_duration_bars": 606,
+    "max_drawdown_recovery_bars": 606,
+    "max_gross_exposure": 0.17840238995052823,
+    "mean_gross_exposure": 0.09565657920009156,
+    "mean_open_positions": 1.4897119341563787,
+    "modeled_cost_bps_initial_equity": {
+      "fee": 83.44818795653332,
+      "half_spread": 8.344818795653334,
+      "slippage": 16.689637591306667,
+      "total": 108.48264434349332
+    },
+    "modeled_cost_bps_initial_equity_per_year": 54.3157272776064,
+    "multiplier": 2.0,
+    "net_total_return": 0.05586973209674784,
+    "payoff_ratio": 3.8951306421531915,
+    "profit_factor": 1.2983768807177307,
+    "share_of_time_invested": 0.7956104252400549,
+    "sharpe": 0.5031542840042155,
+    "sharpe_per_period": 0.02633629890015569,
+    "sortino": 0.7331679083114022,
+    "tie_break": "fixed priority order BTCUSDT > ETHUSDT > SOLUSDT > BNBUSDT",
+    "trades": 40,
+    "trades_by_symbol": {
+      "BNBUSDT": {
+        "net_pnl_initial_equity": -0.021218575823845794,
+        "trades": 15,
+        "win_rate": 0.2
+      },
+      "BTCUSDT": {
+        "net_pnl_initial_equity": 0.06761456962886017,
+        "trades": 9,
+        "win_rate": 0.4444444444444444
+      },
+      "ETHUSDT": {
+        "net_pnl_initial_equity": 0.0025404464886446196,
+        "trades": 7,
+        "win_rate": 0.2857142857142857
+      },
+      "SOLUSDT": {
+        "net_pnl_initial_equity": -0.023072350537403565,
+        "trades": 9,
+        "win_rate": 0.1111111111111111
+      }
+    },
+    "trades_open_at_end": 1,
+    "trades_per_year": 20.027434842249658,
+    "turnover_per_year": 2.0098689210998097,
+    "win_rate": 0.25,
+    "worst_day": -0.016931944423612233,
+    "years": 2.0
+  },
+  "protocol": "research/protocols/daily-baselines-v1.md",
+  "risk_policy": {
+    "cooldown_after_loss_minutes": 60.0,
+    "daily_loss_limit_pct": 2.0,
+    "max_drawdown_kill_pct": 10.0,
+    "max_open_positions": 2,
+    "max_position_notional_pct": 20.0,
+    "max_risk_per_trade_pct": 0.5,
+    "max_stop_distance_pct": 10.0,
+    "max_total_exposure_pct": 50.0,
+    "min_stop_distance_pct": 0.3,
+    "status": "provisional",
+    "version": "0.1.0",
+    "weekly_loss_limit_pct": 5.0
+  },
+  "role": "candidate",
+  "selection_bias": {
+    "deflated_sharpe_ratio": 0.279048460900128,
+    "note": "earlier trials' per-bar Sharpe rescaled to daily units; raw count treats trials as independent",
+    "sharpe_variance_across_trials_daily_units": 0.0004482913544238446,
+    "trials_including_this": 67
+  },
+  "strategy": "tsmom_trend_v1",
+  "supersedes": [
+    "exp_fadf9d50f30c4b3196e1"
+  ],
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT"
+  ],
+  "trade_count_gate": {
+    "min_evaluation_trades": 100,
+    "period": "development OOS window 2023-11-12 to 2025-11-10 (exclusive), all four symbols combined",
+    "trades": 40
+  },
+  "turnover_vs_hourly_reference": {
+    "candidate_cost_bps_per_year": 27.936591220426205,
+    "candidate_turnover_per_year": 2.060026130809783,
+    "ratio": 0.06788834643486845,
+    "reference_cost_bps_per_year": 419.69867146088023,
+    "reference_turnover_per_year": 30.344326220791903
+  },
+  "working_tree_dirty": true
+}

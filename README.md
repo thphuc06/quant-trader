@@ -27,9 +27,10 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | Harness eval | 6 kịch bản chạy bằng session `claude -p` mới với Haiku, chấm bằng code. Baseline 5/6 → sau khi sửa skill: 5 kịch bản đạt mọi lần, S2 đạt 3/3 lần cuối. Xem [reports/harness-eval/](reports/harness-eval/) |
 | Volatility-scaled exposure | Challenger cho 2 baseline, rolling walk-forward và 2× cost stress; chưa qua toàn bộ gate, không bật paper/live |
 | Backtest danh mục (`quant/portfolio.py`), bootstrap lợi nhuận ngày (block 5/10/20), trial accounting cho DSR | Xong, có test (sizing khớp `risk.compute_sizing`) |
-| Baseline khung ngày (protocol đăng ký trước, 1 lần chạy) | Turnover giảm ~95%, nhưng không qua gate số lệnh / CI / DSR → inconclusive, không paper |
+| Baseline khung ngày (protocol đăng ký trước) | Turnover giảm ~95% nhưng inconclusive trên 2023–2025; **REJECTED** trên dữ liệu 2017–2021 chưa dùng (không có timing skill) → dừng hướng này |
+| Khung kiểm định v2 (timing skill, tầng REJECTED / INCONCLUSIVE / VALIDATED) | Operator đã duyệt, có code và test |
 
-Kiểm tra gần nhất (2026-11-11): 342 test pass, `ruff` và `mypy` sạch.
+Kiểm tra gần nhất (2026-11-11): 354 test pass, `ruff` và `mypy` sạch.
 
 ### Chu trình Binance Demo đầu tiên (2026-11-11)
 
@@ -143,24 +144,53 @@ baseline chạy trên nến ngày UTC (gộp từ nến 1h, ngày thiếu giờ 
 giống risk engine, policy v0.1.0 (0.5% rủi ro/lệnh, tối đa 2 vị thế, 50% exposure). So sánh với cùng luật trên nến 1h.
 Cửa sổ 2023-11-12 → 2025-11-10; holdout vẫn khóa.
 
+Số liệu dưới đây là của **bản chạy lại đã sửa lỗi**. Lần chạy đầu có lỗi làm tròn số thực: stop đã kẹp đúng 10% vẫn
+bị coi là vượt ngưỡng, nên 5 và 11 lệnh vào bị bỏ qua. Lỗi được phát hiện sau khi đã xem kết quả. Bản ghi cũ vẫn giữ
+nhưng không tính vào DSR.
+
 | | tsmom ngày | donchian ngày | tsmom 1h (tham chiếu) | donchian 1h (tham chiếu) |
 |---|---:|---:|---:|---:|
-| Net return 2 năm / ở 2× phí | +12.7% / +11.8% | +10.0% / +9.4% | +7.0% / — | +2.3% / — |
-| Max drawdown | −8.2% | −5.1% | −10.6% | −10.4% |
-| Số lệnh đóng | 37 | 21 | 196 | 190 |
-| Turnover/năm | 1.9× | 1.1× | 30.3× | 30.9× |
-| Chi phí mô phỏng (bps vốn/năm) | 28 | 15 | 420 | 420 |
-| Cận dưới CI 90% Sharpe (thấp nhất trong block 5/10/20 ngày) | −0.37 | −0.38 | — | — |
-| DSR (65 trial) | 0.40 | 0.41 | không tính | không tính |
+| Net return 2 năm / ở 2× phí | +6.3% / +5.6% | +10.2% / +9.7% | +7.0% / — | +2.1% / — |
+| Max drawdown | −7.1% | −4.6% | −10.6% | −10.4% |
+| Sharpe | 0.55 | 0.91 | 0.41 | 0.15 |
+| Số lệnh đóng | 40 | 17 | 196 | 191 |
+| Turnover/năm | 2.1× | 0.9× | 30.3× | 31.0× |
+| DSR (67 trial) | 0.28 | 0.47 | không tính | không tính |
 
-- **Đạt:** turnover giảm còn 3.6–6.4% so với 1h (mục tiêu ≤ 50%); vẫn dương ở 2× phí.
-- **Không đạt:** số lệnh (21–37, cần ≥ 100), CI của Sharpe vẫn chứa 0 ở mọi độ dài block, DSR < 0.5.
+- **Đạt:** turnover giảm còn 2.9–6.8% so với 1h (mục tiêu ≤ 50%); vẫn dương ở 2× phí.
+- **Không đạt:** số lệnh (17–40, cần ≥ 100), CI của Sharpe vẫn chứa 0, DSR < 0.5.
 - **Kết luận theo protocol:** khung ngày giải quyết được cơ chế chi phí nhưng **chưa có bằng chứng edge**. Kết quả
   inconclusive, **không đề xuất paper trading**, giữ `NO_TRADE` / `WATCH`. Không đổi ngưỡng, universe hay cửa sổ
   sau khi đã xem kết quả. Bằng chứng tiếp theo chỉ có thể đến từ dữ liệu forward.
 - Lưu ý: sizing 0.5% rủi ro với stop rộng khiến exposure trung bình chỉ 8–11%. Cả hai baseline 1h đều chạm ngưỡng
   drawdown 10% của policy và bị chặn vào lệnh phần lớn thời gian, nên mức giảm turnover đo được là ước lượng thận trọng.
   Cửa sổ OOS này đã bị xem bởi nhiều trial trước, nên mọi kết quả chỉ mang tính khám phá.
+
+### Kiểm tra ngược trên dữ liệu 2017–2021 (H1, khung kiểm định v2)
+
+Một bài review phương pháp ([research/reviews/](research/reviews/2026-11-11-low-frequency-evaluation.md)) cho thấy bộ
+gate cũ gần như không thể cho một chiến lược ít lệnh "đạt", và không tách được kỹ năng chọn thời điểm khỏi việc chỉ đơn
+giản đang long trong thị trường tăng. Operator đã duyệt [khung kiểm định v2](research/validation-framework-v2.md). Gate
+chính của v2 là **timing skill**: so lợi nhuận của chiến lược với buy & hold ở cùng mức exposure trung bình, kiểm định
+bằng cách dịch vòng chuỗi vị thế 2,000 lần.
+
+[Protocol H1](research/protocols/daily-baselines-backext-v1.md) được commit trước khi tải dữ liệu. Hai luật khung ngày
+giữ nguyên, chạy trên BTC/ETH từ 2017-12 đến 2021-11, là giai đoạn chưa trial nào chạm tới. Phí 2× là mức chính.
+
+| H1 (phí 2×) | tsmom ngày | donchian ngày |
+|---|---:|---:|
+| Net return ≈ 4 năm | +39.8% | +30.5% |
+| Max drawdown | −19.5% | −15.2% |
+| Số lệnh | 19 | 14 |
+| Vượt buy & hold cùng exposure (năm) | +1.8% | +4.2% |
+| **p-value timing** | **0.22** | **0.17** |
+
+- **Kết quả: REJECTED cả hai**, vì không có bằng chứng timing skill (p > 0.10). Theo quyết định ghi sẵn trong protocol:
+  bỏ hai luật này, không đưa vào shadow log, và **dừng hướng trend khung ngày**. Giữ `NO_TRADE` / `WATCH`.
+- Cách hiểu: chiến lược có lãi chủ yếu vì có cầm coin trong hai đợt tăng giá. Phần vượt buy & hold là dương, nhưng
+  không phân biệt được với may mắn. Với khoảng 4 năm dữ liệu và exposure khoảng 5–7%, kiểm định này cũng không đủ mạnh
+  để phát hiện một edge nhỏ.
+- Cùng lỗi kẹp stop như trên đã ảnh hưởng lần chạy đầu của H1. Bản sửa ra cùng kết luận.
 
 Chi tiết và experiment IDs: [research/research-log.md](research/research-log.md).
 

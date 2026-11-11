@@ -126,3 +126,62 @@ Notes the protocol did not anticipate (descriptive only):
 
 Decision: keep `NO_TRADE` / `WATCH`. Possible next evidence is forward only, e.g. adding the two daily rules to the
 shadow log. That changes the plan and is left to the operator.
+
+**Correction (later 2026-11-11).** The table above came from code with a defect: a stop clipped to exactly the 10%
+policy maximum was rejected by float rounding, so the protocol's clip rule skipped 5 (tsmom) and 11 (donchian) daily
+entries (fixed in `4919c5f`; found while inspecting the H1 run below, after these results were seen). Corrected
+re-runs supersede the four records; the old records are kept and excluded from the DSR count.
+
+| Corrected | tsmom daily (`exp_4a288b04`) | donchian daily (`exp_f37a418c`) | tsmom 1h ref (`exp_0851cd06`) | donchian 1h ref (`exp_4af2060a`) |
+|---|---:|---:|---:|---:|
+| Net return (2 y) / at 2× costs | +6.3% / +5.6% | +10.2% / +9.7% | +7.0% | +2.1% |
+| Max drawdown | −7.1% | −4.6% | −10.6% | −10.4% |
+| Sharpe | 0.55 | 0.91 | 0.41 | 0.15 |
+| Closed trades | 40 | 17 | 196 | 191 |
+| Turnover / year (ratio to 1h) | 2.1× (6.8%) | 0.9× (2.9%) | 30.3× | 31.0× |
+| DSR (67 trials) | 0.28 | 0.47 | — | — |
+
+Same gate outcome as before (turnover cut and 2× cost pass; trade count, Sharpe CI and DSR fail): inconclusive under
+the v1 gates. The tsmom point estimate roughly halved, which is a reminder of how fragile a 2-year, 20–40-trade
+result is.
+
+## Validation framework v2 and preregistered H1 — frozen daily rules on 2017–2021 (2026-11-11)
+
+- A literature/methods review ([reviews/2026-11-11-low-frequency-evaluation.md](reviews/2026-11-11-low-frequency-evaluation.md))
+  showed that the v1 gates cannot pass a realistic low-frequency strategy on 2 years of data (a true Sharpe 0.8
+  passes the CI gate ≈ 28% of the time) and do not separate timing from being long in a bull market. The operator
+  approved [validation-framework-v2.md](validation-framework-v2.md): timing-skill test against exposure-matched
+  buy-and-hold, 2× cost, Sharpe CI with the implied threshold stated, DSR with N bound to the sample, ≥ 30 trades,
+  and tiers REJECTED / INCONCLUSIVE / VALIDATED.
+- [H1 protocol](protocols/daily-baselines-backext-v1.md) committed in `ebd0036` before any 2017–2021 candle was
+  downloaded; framework code `77492cd`. Data: Binance BTCUSDT/ETHUSDT 1h from 2017-08-17 04:00 UTC, 36,997 bars
+  each, 27 gaps / 127 missing hours (exchange outages) → 29 incomplete days dropped per symbol; daily aggregation
+  equals native 1d klines on all 1,518 compared days. Window 2017-12-01 → 2021-11-11, 2× costs (26 bps/side) primary.
+- First run (`exp_e8b28779`, `exp_7fc822fd`) had the clip defect (9 and 8 skipped entries) and is superseded.
+  Corrected run, the result of record:
+
+| H1 (2× costs) | tsmom daily (`exp_28ca944d`) | donchian daily (`exp_64ca1d36`) |
+|---|---:|---:|
+| Net return (≈ 3.95 y), 2× / 1× costs | +39.8% / +41.2% | +30.5% / +31.5% |
+| Max drawdown | −19.5% | −15.2% |
+| Sharpe | 0.74 | 0.73 |
+| Closed trades | 19 | 14 |
+| Mean exposure | 7.3% | 4.3% |
+| Timing excess vs exposure-matched buy & hold, annualized | +1.8% | +4.2% |
+| **Timing p-value (K = 2,000 shifts)** | **0.22** | **0.17** |
+| Lowest 90% CI lower bound of Sharpe (implied threshold ≈ 0.9) | −0.08 | −0.17 |
+| DSR binding N = 2 / raw N = 67 | 0.92 / 0.33 | 0.92 / 0.33 |
+| Net P&L without the two best trades (fraction of equity) | +0.026 | −0.022 |
+
+- Gates: G-cost and G-dsr pass; **G-timing fails** for both; G-ci and G-span fail. Tier: **REJECTED** for both.
+- Decision, fixed in the protocol: both rules are dropped (no further trials on any data, not added to the shadow log),
+  and the daily-trend direction ends for this desk. Keep `NO_TRADE` / `WATCH`.
+- What "REJECTED" means here: the positions' timing earned +1.8% and +4.2% a year more than holding the same average
+  exposure passively, but shifted copies of the same positions did as well 17–22% of the time. The data do not show
+  timing skill; with ≈ 4 years and ≈ 5–7% exposure they also could not have shown a small one. The framework, agreed
+  in advance, treats "no evidence of timing" as a reason to stop rather than to keep testing. Any change to that rule
+  applies only to future protocols.
+- Descriptive notes: the policy's 10% drawdown floor was reached in mid-2021 and blocked all new entries for the last
+  ≈ 5 months of the window (154–170 entry-days), the same non-recovering floor seen in the hourly references; profits
+  came from very few trades (removing the two best leaves ≈ 0); returns are small in absolute terms because 0.5%-risk
+  sizing with wide daily stops keeps exposure near 5–7%.
