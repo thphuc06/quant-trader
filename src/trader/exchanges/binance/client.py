@@ -201,6 +201,24 @@ class BinancePublicClient:
     def futures_open_interest(self, symbol: str) -> dict[str, Any]:
         return self._futures.request("GET", "/fapi/v1/openInterest", {"symbol": symbol.upper()}, retry=True)
 
+    def futures_funding_history(self, symbol: str, start_ms: int, limit: int = 1000) -> list[dict[str, Any]]:
+        """Funding events in ascending time from ``start_ms`` (verified 2026-11-11: full history since listing;
+        a zero or missing start returns only the latest events)."""
+        if not 1 <= limit <= 1000 or start_ms <= 0:
+            raise ValueError("limit must be within 1..1000 and start_ms positive")
+        params = {"symbol": symbol.upper(), "startTime": start_ms, "limit": limit}
+        return self._futures.request("GET", "/fapi/v1/fundingRate", params, retry=True)
+
+    def futures_open_interest_history(
+        self, symbol: str, period: str, start_ms: int, end_ms: int, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """Aggregated open interest snapshots in [start_ms, end_ms] (verified 2026-11-11: only the last ~30 days are
+        served, and when the window holds more than ``limit`` rows the LAST ones are returned, so callers page by day)."""
+        if not 1 <= limit <= 500 or end_ms <= start_ms:
+            raise ValueError("limit must be within 1..500 and end_ms after start_ms")
+        params = {"symbol": symbol.upper(), "period": period, "startTime": start_ms, "endTime": end_ms, "limit": limit}
+        return self._futures.request("GET", "/futures/data/openInterestHist", params, retry=True)
+
 
 class HmacSigner:
     """Binance "system generated" keys: hex HMAC-SHA256 of the query string."""

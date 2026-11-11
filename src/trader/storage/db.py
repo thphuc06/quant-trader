@@ -17,7 +17,7 @@ from typing import Any
 from trader.domain import jsonable
 from trader.timeutil import iso, utc_now
 
-SCHEMA_VERSION = 3  # v3: shadow_log table (created by CREATE TABLE IF NOT EXISTS)
+SCHEMA_VERSION = 4  # v3: shadow_log; v4: funding_rates, open_interest (all created by CREATE TABLE IF NOT EXISTS)
 
 # Columns added after v1. init_schema() adds them to existing databases in place.
 MIGRATIONS: list[tuple[int, str, str, str]] = [
@@ -196,6 +196,43 @@ CREATE TRIGGER IF NOT EXISTS shadow_log_no_update BEFORE UPDATE ON shadow_log
 BEGIN SELECT RAISE(ABORT, 'shadow_log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS shadow_log_no_delete BEFORE DELETE ON shadow_log
 BEGIN SELECT RAISE(ABORT, 'shadow_log is append-only'); END;
+
+-- Perpetual-futures context collected by `trader collect-derivatives`. Append-only, insert-once, raw API strings.
+CREATE TABLE IF NOT EXISTS funding_rates (
+    symbol TEXT NOT NULL,
+    funding_time_ms INTEGER NOT NULL,
+    funding_rate TEXT NOT NULL,
+    mark_price TEXT,
+    logged_at TEXT NOT NULL,
+    PRIMARY KEY (symbol, funding_time_ms)
+);
+CREATE TRIGGER IF NOT EXISTS funding_rates_insert_once BEFORE INSERT ON funding_rates
+WHEN EXISTS (SELECT 1 FROM funding_rates WHERE symbol = NEW.symbol AND funding_time_ms = NEW.funding_time_ms)
+BEGIN SELECT RAISE(IGNORE); END;
+CREATE TRIGGER IF NOT EXISTS funding_rates_no_update BEFORE UPDATE ON funding_rates
+BEGIN SELECT RAISE(ABORT, 'funding_rates is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS funding_rates_no_delete BEFORE DELETE ON funding_rates
+BEGIN SELECT RAISE(ABORT, 'funding_rates is append-only'); END;
+
+CREATE TABLE IF NOT EXISTS open_interest (
+    symbol TEXT NOT NULL,
+    period TEXT NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    sum_open_interest TEXT NOT NULL,
+    sum_open_interest_value TEXT NOT NULL,
+    logged_at TEXT NOT NULL,
+    PRIMARY KEY (symbol, period, timestamp_ms)
+);
+CREATE TRIGGER IF NOT EXISTS open_interest_insert_once BEFORE INSERT ON open_interest
+WHEN EXISTS (
+    SELECT 1 FROM open_interest
+    WHERE symbol = NEW.symbol AND period = NEW.period AND timestamp_ms = NEW.timestamp_ms
+)
+BEGIN SELECT RAISE(IGNORE); END;
+CREATE TRIGGER IF NOT EXISTS open_interest_no_update BEFORE UPDATE ON open_interest
+BEGIN SELECT RAISE(ABORT, 'open_interest is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS open_interest_no_delete BEFORE DELETE ON open_interest
+BEGIN SELECT RAISE(ABORT, 'open_interest is append-only'); END;
 
 CREATE TABLE IF NOT EXISTS experiments (
     experiment_id TEXT PRIMARY KEY,

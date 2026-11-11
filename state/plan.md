@@ -19,8 +19,17 @@
   Bug found and fixed: sub-step remainder after a full exit (base-asset fee) was flagged UNPROTECTED and tripped the
   kill switch; now written off as dust (`250be48`). Stop orders are recorded as `STOP_LOSS` in the orders table.
   Kill switch released by the operator 00:17Z. Live stays locked.
-- Waiting on: Fable research on evaluation of low-frequency strategies (gate review before any new hypothesis);
-  shadow-log task registration; push of the local commits.
+- Research round 2026-11-11, **done**: review filed (`research/reviews/`), framework v2 approved and implemented
+  (`ebd0036`, `77492cd`), H1 back-extension run (corrected after a clip-stop rounding defect, `4919c5f`): both daily
+  rules REJECTED = "timing skill not demonstrated" (weak test, confounded by the drawdown lock); daily-trend
+  direction closed. KB playbooks carry the research status; `kb-note-research-status` added (`5d9a328`).
+- Derivatives collector (`collect-derivatives`): funding since listing, OI 1h for the last 29 days, append-only.
+- Waiting on the operator: register two hourly tasks (docs §9 shadow log, §10 derivatives; OI history is lost after
+  ~30 days); drawdown-floor decision (reset command for Demo/live, mechanical backtest rule, peak on realized or
+  marked equity); push of local commits; KB status review of the candidate documents.
+- Next builder work, in order: (1) decision-quality measurement for the LLM, designed as a paired comparison with the
+  mechanical shadow log and a scoring rule fixed before data collection; (2) read-only MCP access to the funding/OI
+  history; (3) any new hypothesis only under framework v2 with power stated up front.
 - Later: news provider key.
 
 ---

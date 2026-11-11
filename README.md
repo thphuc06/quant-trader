@@ -29,8 +29,9 @@ Mọi con số (indicator, sizing, risk) do code Python đã test tính; mọi l
 | Backtest danh mục (`quant/portfolio.py`), bootstrap lợi nhuận ngày (block 5/10/20), trial accounting cho DSR | Xong, có test (sizing khớp `risk.compute_sizing`) |
 | Baseline khung ngày (protocol đăng ký trước) | Turnover giảm ~95% nhưng inconclusive trên 2023–2025; **REJECTED** trên dữ liệu 2017–2021 chưa dùng (không có timing skill) → dừng hướng này |
 | Khung kiểm định v2 (timing skill, tầng REJECTED / INCONCLUSIVE / VALIDATED) | Operator đã duyệt, có code và test |
+| Thu funding rate + open interest (`collect-derivatives`), bảng append-only | Xong, có test. Funding đầy đủ từ 2019; OI chỉ có 29 ngày gần nhất, **cần lên lịch chạy mỗi giờ** ([docs §10](docs/operating-the-trading-desk.md)). Chưa có tool MCP đọc lịch sử |
 
-Kiểm tra gần nhất (2026-11-11): 354 test pass, `ruff` và `mypy` sạch.
+Kiểm tra gần nhất (2026-11-11): 358 test pass, `ruff` và `mypy` sạch.
 
 ### Chu trình Binance Demo đầu tiên (2026-11-11)
 
@@ -234,6 +235,7 @@ Chi tiết (role, các tool cần duyệt, quy trình approve, xử lý sự c�
 ```bash
 python -m trader status                      # trạng thái hệ thống (JSON)
 python -m trader shadow-log                  # ghi shadow log các nến 1h đã đóng (lên lịch mỗi giờ, docs §9)
+python -m trader collect-derivatives         # funding + open interest (OI chỉ giữ ~30 ngày; lên lịch mỗi giờ, docs §10)
 python -m trader ingest --intervals 1h       # tải lịch sử nến
 python -m trader backtest donchian_breakout_v1 --symbol BTCUSDT   # mỗi lần chạy được ghi lại như 1 trial
 python -m trader research-volatility-overlay # challenger OOS trên dữ liệu đã ingest; không tải thay dữ liệu

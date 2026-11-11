@@ -253,6 +253,17 @@ def cmd_research_daily_baselines(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect_derivatives(args: argparse.Namespace) -> int:
+    """Append funding-rate and open-interest history for the universe (public data; schedule hourly)."""
+    from trader.derivatives import collect_derivatives
+
+    desk = TradingDesk()
+    symbols = [desk._check_symbol(args.symbol)] if args.symbol else desk.app.symbols
+    result = collect_derivatives(desk.db, desk.market.source, symbols)  # type: ignore[arg-type]
+    _print(result)
+    return 0 if result["ok"] else 1
+
+
 def _parse_supersedes(raw: str | None, registry: Any = None) -> dict[str, str] | None:
     """'candidate:tsmom_trend_v1=exp_x,reference:tsmom_trend_v1=exp_y' -> mapping.
 
@@ -824,6 +835,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("shadow-log", help="append forward shadow-log rows for closed decision bars (schedule hourly)")
     p.add_argument("--symbol")
     p.set_defaults(fn=cmd_shadow_log)
+
+    p = sub.add_parser(
+        "collect-derivatives",
+        help="append funding-rate and open-interest history (OI is kept by Binance ~30 days; schedule hourly)",
+    )
+    p.add_argument("--symbol")
+    p.set_defaults(fn=cmd_collect_derivatives)
 
     p = sub.add_parser("backtest", help="evaluate a strategy; every run is logged as a trial")
     p.add_argument("strategy")

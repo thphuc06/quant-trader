@@ -118,3 +118,18 @@ schtasks /Create /TN "ClaudeTrader\ShadowLog" /SC HOURLY /ST 00:05 /F /TR "cmd /
 - Run once now: `schtasks /Run /TN "ClaudeTrader\ShadowLog"`. Remove: `schtasks /Delete /TN "ClaudeTrader\ShadowLog" /F`.
 - The task runs only while you are logged on (the default), which needs no stored password. Adjust `C:\ClaudeTrader`
   if the repo lives elsewhere.
+
+## 10. Funding and open interest (scheduled job)
+
+`python -m trader collect-derivatives` appends Binance USDT-M perpetual funding rates (full history since listing on
+the first run) and hourly aggregated open interest to append-only tables. **Binance serves open-interest history for
+only about 30 days**, so a gap longer than that is lost for good; the command reports it as
+`hours_lost_beyond_retention` and never fills it. The data are research context; nothing here is a tested signal.
+
+Register it as a second task, a few minutes after the shadow log (separate tasks keep separate `Last Result` codes):
+
+```
+schtasks /Create /TN "ClaudeTrader\Derivatives" /SC HOURLY /ST 00:07 /F /TR "cmd /c cd /d C:\ClaudeTrader && .venv\Scripts\python.exe -m trader collect-derivatives >> data\derivatives.out 2>&1"
+```
+
+`Last Result` 0 = every symbol and both series ok; 1 = at least one part failed (the next run retries it).
