@@ -15,6 +15,20 @@ limitations: The cited evidence is daily/weekly momentum on a 2011-2018 sample w
 related: []
 ---
 
+## Research status (2026-11-11) — read first
+
+**Not validated. A long signal from this rule is not a reason to trade.**
+
+- 1h version (this card): after costs it lost money on 3 of 4 symbols over the development period; no configuration
+  had a Sharpe confidence interval above zero; about 87% of turnover was its own entries/exits and modeled costs were
+  ≈ 36% of equity over two years. Under the current risk policy its portfolio backtest also tripped the 10% drawdown
+  floor (`exp_0851cd06`).
+- Daily version (EMA 20/100, 90-day momentum): inconclusive on 2023–2025 (`exp_4a288b04`); on untouched 2017–2021 data
+  **timing skill was not demonstrated** (p = 0.22 vs exposure-matched buy-and-hold, `exp_28ca944d`) and the rule was
+  dropped under framework v2. The test was weak and confounded by the drawdown lock, so this is "not demonstrated",
+  not "proven to have no edge".
+- Details: `research/research-log.md`, `research/validation-framework-v2.md`.
+
 ## Hypothesis
 
 Returns show positive autocorrelation over horizons of days to weeks because information and attention spread slowly.
@@ -41,5 +55,5 @@ A position held while both a slow trend filter and a medium-horizon return are p
 
 ## Validation status
 
-See `research/experiments/` and `research/experiment-summary.md`. Until the provisional gates in `configs/app.yaml`
+See `research/experiments/` and `research/research-log.md`. Until the provisional gates in `configs/app.yaml`
 are passed, this card stays `candidate` and must not be cited as a rule.

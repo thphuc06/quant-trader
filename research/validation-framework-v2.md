@@ -91,6 +91,24 @@ Trend following normally earns from a few large trades with a 30–40% win rate,
   4. no implementation mismatch.
 - Fail → REJECTED. Pass → the operator may approve a paper-trading test; that is a decision, not an automatic step.
 
+## Clarifications after the first use (H1, 2026-11-11)
+
+These document what the code already does or what H1 revealed. None changed H1's outcome; any change of a rule
+applies only to protocols registered afterwards.
+
+1. **Two REJECTED cases not spelled out above:** a daily net Sharpe ≤ 0, or a timing p-value that cannot be computed
+   (too few periods for the shift margin), are REJECTED.
+2. **Reconstruction lag:** G-timing applies the exposure at the close of day t−1 to the close-to-close return of day t,
+   while real entries and exits happen at the next open. The lag is the same in the observed and null statistics.
+3. **Power of G-timing:** every report states the null's 95th percentile next to the strategy's reconstructed annual
+   return. In H1 the 95th percentile (+9.7% to +13.5%/yr) exceeded the strategies' whole return at 4–7% exposure, so a
+   REJECTED there means "timing skill not demonstrated", not "no edge". Research logs and the knowledge base must use
+   that wording.
+4. **G-dsr with a small binding N** (e.g. 2) filters almost nothing; it is reported, not relied on as a barrier.
+5. **Drawdown lock as a confound:** a protocol must state how the policy's drawdown floor is simulated. With the
+   current policy (entries blocked once equity is 10% below a peak that includes open profit, never released in a
+   backtest) a long backtest is cut at the first such give-back. Pending operator decision.
+
 ## Implementation (after approval, builder session)
 
 `configs/app.yaml` validation block gains the v2 parameters (trade floor 30, timing p 0.10, K 2,000, shift margin

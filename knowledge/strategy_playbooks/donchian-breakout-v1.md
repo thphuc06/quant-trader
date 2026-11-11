@@ -14,6 +14,18 @@ limitations: No external evidence was collected for this exact rule. It is a cla
 related: []
 ---
 
+## Research status (2026-11-11) — read first
+
+**Not validated. A long signal from this rule is not a reason to trade.**
+
+- 1h version (this card): no configuration had a Sharpe confidence interval above zero; PBO for its parameter family
+  was 0.45 (high overfitting risk when choosing parameters); turnover ≈ 56–63× notional per year; its portfolio
+  backtest under the current risk policy tripped the 10% drawdown floor (`exp_4af2060a`).
+- Daily version (55/20): inconclusive on 2023–2025 (`exp_f37a418c`); on untouched 2017–2021 data **timing skill was
+  not demonstrated** (p = 0.17 vs exposure-matched buy-and-hold, `exp_64ca1d36`) and the rule was dropped under
+  framework v2. Weak, confounded test: "not demonstrated", not "proven to have no edge".
+- Details: `research/research-log.md`, `research/validation-framework-v2.md`.
+
 ## Hypothesis
 
 Volatility clusters. A close above the highest high of the last four days often coincides with new information and the
@@ -38,4 +50,4 @@ breakout on below-average volume with falling volatility contradicts the hypothe
 
 ## Validation status
 
-See `research/experiments/` and `research/experiment-summary.md`. `candidate` until the gates are passed.
+See `research/experiments/` and `research/research-log.md`. `candidate` until the gates are passed.

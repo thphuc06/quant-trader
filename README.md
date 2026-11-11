@@ -187,9 +187,15 @@ giữ nguyên, chạy trên BTC/ETH từ 2017-12 đến 2021-11, là giai đoạ
 
 - **Kết quả: REJECTED cả hai**, vì không có bằng chứng timing skill (p > 0.10). Theo quyết định ghi sẵn trong protocol:
   bỏ hai luật này, không đưa vào shadow log, và **dừng hướng trend khung ngày**. Giữ `NO_TRADE` / `WATCH`.
-- Cách hiểu: chiến lược có lãi chủ yếu vì có cầm coin trong hai đợt tăng giá. Phần vượt buy & hold là dương, nhưng
-  không phân biệt được với may mắn. Với khoảng 4 năm dữ liệu và exposure khoảng 5–7%, kiểm định này cũng không đủ mạnh
-  để phát hiện một edge nhỏ.
+- **Cách hiểu đúng: không chứng minh được timing skill. Kết quả này không chứng minh rằng trend khung ngày không có edge.**
+  Có ba lý do:
+  - Kiểm định rất yếu. Phân vị 95 của phân phối null là +9.7% đến +13.5% mỗi năm, cao hơn toàn bộ lợi nhuận của chiến
+    lược (khoảng 8.5% mỗi năm ở exposure 4–7%).
+  - Kết quả bị trộn với khoá drawdown 10%. Khoá này chặn mọi lệnh mới trong 5–6 tháng cuối cửa sổ, và đã không giữ được
+    drawdown dưới 10% (thực tế −19.5% và −15.2%).
+  - Lãi đến từ rất ít lệnh.
+
+  Quyết định bỏ hai luật vẫn giữ nguyên như đã ghi trước. Không chạy lại để "cứu" kết quả.
 - Cùng lỗi kẹp stop như trên đã ảnh hưởng lần chạy đầu của H1. Bản sửa ra cùng kết luận.
 
 Chi tiết và experiment IDs: [research/research-log.md](research/research-log.md).

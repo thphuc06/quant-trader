@@ -175,13 +175,24 @@ result is.
 
 - Gates: G-cost and G-dsr pass; **G-timing fails** for both; G-ci and G-span fail. Tier: **REJECTED** for both.
 - Decision, fixed in the protocol: both rules are dropped (no further trials on any data, not added to the shadow log),
-  and the daily-trend direction ends for this desk. Keep `NO_TRADE` / `WATCH`.
-- What "REJECTED" means here: the positions' timing earned +1.8% and +4.2% a year more than holding the same average
-  exposure passively, but shifted copies of the same positions did as well 17–22% of the time. The data do not show
-  timing skill; with ≈ 4 years and ≈ 5–7% exposure they also could not have shown a small one. The framework, agreed
-  in advance, treats "no evidence of timing" as a reason to stop rather than to keep testing. Any change to that rule
-  applies only to future protocols.
-- Descriptive notes: the policy's 10% drawdown floor was reached in mid-2021 and blocked all new entries for the last
-  ≈ 5 months of the window (154–170 entry-days), the same non-recovering floor seen in the hourly references; profits
-  came from very few trades (removing the two best leaves ≈ 0); returns are small in absolute terms because 0.5%-risk
-  sizing with wide daily stops keeps exposure near 5–7%.
+  and the daily-trend direction ends for this desk. Keep `NO_TRADE` / `WATCH`. The rules are not re-run to "rescue"
+  the result.
+- **What the result shows: timing skill was not demonstrated. It does not show that daily trend has no edge.**
+  - The test was weak by construction. The 95th percentile of the null was +13.5%/yr (tsmom) and +9.7%/yr (donchian)
+    while the strategies' whole reconstructed return was ≈ 8.5–8.9%/yr, so passing required roughly twice the return
+    the strategies made at 5–7% exposure.
+  - The test measured "rules + the drawdown lock", not the rules alone. The policy's 10% floor was reached in mid-2021;
+    the last day with a position was 2021-06-21 (tsmom) and 2021-05-19 (donchian), after which entries were blocked
+    for the remaining 5–6 months (≈ 10–12% of the window). The size of this effect was not measured.
+  - The 10% floor did not bound drawdown (−19.5%, −15.2%): it only blocks new entries, and the equity peak includes
+    open profit, so giving back part of a large trend trade both breaches it and locks the account for good.
+  - G-dsr with the binding N = 2 (0.92) filters almost nothing; raw-registry DSR was 0.33. Not decisive here, but it
+    should not be read as a barrier in future protocols.
+  - Profits came from very few trades (removing the two best leaves ≈ 0).
+- Reproducibility note: the four corrected daily-baselines-v1 records (`exp_0851cd06`, `exp_4a288b04`,
+  `exp_4af2060a`, `exp_f37a418c`) carry `working_tree_dirty: true`. The code at that moment was exactly `4919c5f`;
+  the tree was dirty only because the two corrected H1 records written minutes earlier were not yet committed
+  (commit `29c010e` adds only experiment JSON and docs). Re-running from `4919c5f` reproduces them.
+- Code/document gaps found in review (clarified in framework v2, no effect on H1's outcome): the code also assigns
+  REJECTED when the daily Sharpe is ≤ 0 or the timing p-value cannot be computed; the timing reconstruction applies the
+  previous close's exposure to the full close-to-close day, one day later than the real open-price entries/exits.
