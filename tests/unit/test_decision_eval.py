@@ -137,3 +137,5 @@ async def test_permission_gate_answers_over_mcp() -> None:
             "decide", {"tool_name": "mcp__trading__execute_approved_trade", "input": {}}
         )
         assert json.loads(result.content[0].text)["behavior"] == "deny"  # type: ignore[union-attr]
+        # regression (smoke run 2): Claude Code rejects anything but a single text block, so no structured wrapper
+        assert len(result.content) == 1 and not getattr(result, "structured_content", None)
